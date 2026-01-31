@@ -15,7 +15,7 @@ const AUTO_RANDOM_CODE = true; // Set TRUE untuk random server ID per akun
 
 // --- GRID SETTINGS (XML) ---
 const GRID_COLS = 4;        // 4 Kotak ke samping
-const BOX_SIZE = 270;       // Ukuran kotak (270px agar muat 4 di layar 1080p)
+const BOX_SIZE = 120;       // Ukuran kotak (270px agar muat 4 di layar 1080p)
 const START_OFFSET_Y = 0;   // Jarak dari atas
 
 // --- TIMING ---
