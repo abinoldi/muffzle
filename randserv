@@ -15,7 +15,7 @@ const AUTO_RANDOM_CODE = true;
 
 // --- GRID SETTINGS (XML) ---
 const GRID_COLS = 4;        // 4 Kotak ke samping
-const BOX_SIZE = 120;       // Ukuran kotak (260px)
+const BOX_SIZE = 180;       // Ukuran kotak (260px)
 const START_OFFSET_Y = 5;   // Jarak dari paling atas
 const GAP_X = 5;            // Jarak antar kolom (samping)
 const GAP_Y = 50;           // Jarak antar baris (atas-bawah) -> INI JARAKNYA
