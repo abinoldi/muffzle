@@ -11,7 +11,7 @@ npm install axios cli-table3
 echo "📥 Downloading script..."
 # Download the file from your repo
 # Note: I cleaned up the URL to the standard GitHub raw format
-curl -sL "https://raw.githubusercontent.com/abinoldi/muffzle/main/randserv" -o mamajo.js
+curl -sL "https://raw.githubusercontent.com/abinoldi/muffzle/main/randserv" -o randserv.js
 
 echo "🚀 Running script..."
 # Run the script using Node.js
