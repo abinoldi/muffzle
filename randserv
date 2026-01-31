@@ -5,32 +5,28 @@ const readline = require("readline");
 const os = require("os");
 
 // --- CONFIGURATION ---
-const MSRV_URL = "https://ghostbin.axel.org/paste/nk4fh/raw";
+const MSRV_URL = "https://ghostbin.axel.org/paste/2oqfg/raw";
 const PLACE_ID = "121864768012064";
 
 // STATUS MONITORING
 const CHECK_SERVER_PRESENCE = true;
 const AUTO_RECONNECT = false;
-const AUTO_RANDOM_CODE = true; // Set TRUE untuk random server ID per akun
+const AUTO_RANDOM_CODE = true; 
 
 // --- GRID SETTINGS (XML) ---
 const GRID_COLS = 4;        // 4 Kotak ke samping
-const BOX_SIZE = 120;       // Ukuran kotak (270px agar muat 4 di layar 1080p)
-const START_OFFSET_Y = 5;   // Jarak dari atas
+const BOX_SIZE = 120;       // Ukuran kotak (260px)
+const START_OFFSET_Y = 5;   // Jarak dari paling atas
+const GAP_X = 5;            // Jarak antar kolom (samping)
+const GAP_Y = 10;           // Jarak antar baris (atas-bawah) -> INI JARAKNYA
 
 // --- TIMING ---
-const LOOP_DELAY = 40000;   // Delay antar launch
-const CHECK_INTERVAL = 60;  // Delay monitoring
+const LOOP_DELAY = 40000;
+const CHECK_INTERVAL = 60;
 
 function ensurePackage(pkg) {
-  try { 
-    require.resolve(pkg);
-  } catch {
-    try { 
-        execSync(`npm install ${pkg}`, { stdio: "inherit" });
-    } catch (e) { 
-        process.exit(1);
-    }
+  try { require.resolve(pkg); } catch {
+    try { execSync(`npm install ${pkg}`, { stdio: "inherit" }); } catch (e) { process.exit(1); }
   }
 }
 ["axios", "cli-table3"].forEach(ensurePackage);
@@ -45,7 +41,6 @@ const SQLITE_PATH = `${TERMUX_PREFIX}/sqlite3`;
 let lastRestartMap = {};
 let accountStates = {};
 
-// --- SYSTEM INIT ---
 function initSystem() {
   try {
     const uid = execSync("id -u").toString().trim();
@@ -64,7 +59,6 @@ const ask = (q) => new Promise(r => {
   rl.question(q, (ans) => { rl.close(); r(ans); });
 });
 
-// --- ROBLOX UTILS ---
 function getPackages() {
   try {
     return execSync("pm list packages | grep roblox", { encoding: "utf8" })
@@ -103,26 +97,29 @@ function stopPackage(pkg) {
   } catch (e) {} 
 }
 
-// --- XML ARRANGE LOGIC (GRID) ---
+// --- UPDATED XML ARRANGE LOGIC (WITH GAP) ---
 function autoArrangeXML(packages) {
-  console.log(`\n📐 Mengatur XML Window (Grid ${GRID_COLS}xN - Kotak ${BOX_SIZE}px)...`);
+  console.log(`\n📐 Mengatur XML (Grid ${GRID_COLS}xN | Size ${BOX_SIZE} | Gap Y ${GAP_Y})...`);
   
   packages.sort(); 
 
   packages.forEach((pkg, index) => {
-    // Hitung posisi Grid (0-3 baris 1, 4-7 baris 2, dst)
+    // 1. Tentukan Baris & Kolom
     const col = index % GRID_COLS;
     const row = Math.floor(index / GRID_COLS);
 
-    // Hitung koordinat
-    const left = col * BOX_SIZE;
-    const top = (row * BOX_SIZE) + START_OFFSET_Y;
+    // 2. Hitung Koordinat dengan GAP
+    // Left = (Urutan Kolom * (Ukuran + Jarak Samping))
+    const left = col * (BOX_SIZE + GAP_X);
+    
+    // Top = (Urutan Baris * (Ukuran + Jarak Bawah)) + Offset Awal
+    const top = (row * (BOX_SIZE + GAP_Y)) + START_OFFSET_Y;
+    
     const right = left + BOX_SIZE;
     const bottom = top + BOX_SIZE;
 
     const prefsFile = `/data/data/${pkg}/shared_prefs/${pkg}_preferences.xml`;
 
-    // Edit XML langsung
     const cmd = `su -c "
       sed -i 's|app_cloner_current_window_left\\" value=\\"[0-9]*|app_cloner_current_window_left\\" value=\\"${left}|' ${prefsFile};
       sed -i 's|app_cloner_current_window_top\\" value=\\"[0-9]*|app_cloner_current_window_top\\" value=\\"${top}|' ${prefsFile};
@@ -143,7 +140,6 @@ function autoArrangeXML(packages) {
 async function launchPackage(pkg, url) {
   try {
     console.log(`\n🚀 Launching: ${pkg}`);
-    // Launch tanpa resize (karena sudah di-set di XML)
     const cmd = `am start -n ${pkg}/com.roblox.client.ActivityProtocolLaunch ` +
                 `-a android.intent.action.VIEW -d "${url}"`;
     execSync(cmd, { stdio: 'ignore' });
@@ -203,7 +199,7 @@ function renderDashboard(cleanCode, statusMessage) {
   console.clear();
   const stats = getSystemStats();
   console.log(`📱 SYSTEM: CPU ${stats.cpu} | RAM ${stats.ram} | UP ${stats.uptime}`);
-  console.log(`📏 MODE: XML GRID (${GRID_COLS} cols) | SIZE: ${BOX_SIZE}px`);
+  console.log(`📏 MODE: XML GRID (${GRID_COLS} cols) | GAP Y: ${GAP_Y}px`);
   
   const modeStr = CHECK_SERVER_PRESENCE
       ? (AUTO_RECONNECT ? "FULL (AUTO-FIX)" : "MONITOR ONLY")
@@ -223,7 +219,6 @@ function renderDashboard(cleanCode, statusMessage) {
   console.log(table.toString());
 }
 
-// === MAIN LOGIC ===
 async function main() {
   initSystem();
   console.clear();
@@ -270,9 +265,8 @@ async function main() {
   console.log("\n🚀 Launching all instances...");
   
   for (const acc of accounts) {
-    stopPackage(acc.pkg); // Matikan dulu agar XML terbaca saat launch baru
+    stopPackage(acc.pkg);
     
-    // Pilih kode (Random atau Fixed)
     let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
     if(currentCode.includes("linkCode=")) currentCode = currentCode.split("linkCode=")[1].split("&")[0];
     
@@ -310,7 +304,6 @@ async function main() {
       let shouldRestart = false;
       let reason = "";
 
-      // Logic Auto Reconnect
       if (AUTO_RECONNECT && CHECK_SERVER_PRESENCE) {
          if (!isRunning || isStuck) {
              shouldRestart = true;
