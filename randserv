@@ -14,11 +14,11 @@ const AUTO_RECONNECT = false;
 const AUTO_RANDOM_CODE = true; 
 
 // --- GRID SETTINGS (XML) ---
-const GRID_COLS = 4;        // 4 Kotak ke samping
-const BOX_SIZE = 170;       // Ukuran kotak (260px)
+const GRID_COLS = 3;        // 4 Kotak ke samping
+const BOX_SIZE = 150;       // Ukuran kotak (260px)
 const START_OFFSET_Y = 50;   // Jarak dari paling atas
 const GAP_X = 5;            // Jarak antar kolom (samping)
-const GAP_Y = 70;           // Jarak antar baris (atas-bawah) -> INI JARAKNYA
+const GAP_Y = 60;           // Jarak antar baris (atas-bawah) -> INI JARAKNYA
 
 // --- TIMING ---
 const LOOP_DELAY = 65000;
