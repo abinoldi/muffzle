@@ -21,7 +21,7 @@ const GAP_X = 5;            // Jarak antar kolom (samping)
 const GAP_Y = 70;           // Jarak antar baris (atas-bawah) -> INI JARAKNYA
 
 // --- TIMING ---
-const LOOP_DELAY = 40000;
+const LOOP_DELAY = 65000;
 const CHECK_INTERVAL = 60;
 
 function ensurePackage(pkg) {
