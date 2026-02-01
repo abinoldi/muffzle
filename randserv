@@ -229,7 +229,6 @@ async function main() {
 
   let accounts = [];
   packages.sort();
-  
   for (const pkg of packages) {
     process.stdout.write(`Reading ${pkg}... \r`);
     const cookie = getRobloxCookie(pkg);
@@ -259,11 +258,10 @@ async function main() {
     cleanCode = codes[idx];
   }
 
-  // --- SET POSISI WINDOW SEBELUM LAUNCH ---
+  // Atur posisi jendela XML sebelum mulai meluncurkan
   autoArrangeXML(packages);
 
-  console.log("\n🚀 Launching all instances...");
-  
+  console.log("\n🚀 Launching all instances with Presence Detection...");
   for (const acc of accounts) {
     stopPackage(acc.pkg);
     
@@ -272,13 +270,41 @@ async function main() {
     
     const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
 
+    // 1. Jalankan aplikasi Roblox
     await launchPackage(acc.pkg, finalLaunchUrl);
     
     lastRestartMap[acc.pkg] = Date.now();
     accountStates[acc.pkg].isRunning = true;
-    accountStates[acc.pkg].serverStatus = "Launching...";
-    console.log(`⏳ Cooldown ${LOOP_DELAY/1000}s...`);
-    await sleep(LOOP_DELAY); 
+    accountStates[acc.pkg].serverStatus = "Logging in...";
+    renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `Launching ${acc.username}...`);
+
+    // 2. Loop Deteksi Status "In Game"
+    let inGame = false;
+    const startTime = Date.now();
+    const TIMEOUT = 180000; // Batas waktu 3 menit jika gagal masuk game
+
+    while (!inGame && (Date.now() - startTime < TIMEOUT)) {
+      const status = await getSinglePresence(acc.userId, acc.cookie);
+      accountStates[acc.pkg].serverStatus = status;
+      renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `Waiting for ${acc.username} to join...`);
+
+      if (status === "In Game 🎮") {
+        inGame = true;
+      } else {
+        await sleep(5000); // Cek setiap 5 detik agar tidak spam API
+      }
+    }
+
+    // 3. Jeda 30 detik setelah terdeteksi sudah di dalam game
+    if (inGame) {
+      accountStates[acc.pkg].action = "⏳ Stabilization (30s)";
+      renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `${acc.username} joined! Stabilizing...`);
+      await sleep(30000); 
+    } else {
+      accountStates[acc.pkg].action = "⚠️ Timeout/Error";
+    }
+    
+    accountStates[acc.pkg].action = "-";
   }
 
   console.log(`\n💤 Monitor active...`);
@@ -291,7 +317,6 @@ async function main() {
       const isRunning = isProcessRunning(acc.pkg);
       let serverStatus = "Disabled ⚪";
       let isStuck = false;
-
       if (CHECK_SERVER_PRESENCE) {
           serverStatus = await getSinglePresence(acc.userId, acc.cookie);
           isStuck = serverStatus.includes("Online");
@@ -303,7 +328,6 @@ async function main() {
       let action = "-";
       let shouldRestart = false;
       let reason = "";
-
       if (AUTO_RECONNECT && CHECK_SERVER_PRESENCE) {
          if (!isRunning || isStuck) {
              shouldRestart = true;
@@ -322,7 +346,6 @@ async function main() {
         } else {
           stopPackage(acc.pkg);
           action = `♻️ ${reason}`;
-          
           let reconnectCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
           if(reconnectCode.includes("linkCode=")) reconnectCode = reconnectCode.split("linkCode=")[1].split("&")[0];
           
@@ -339,7 +362,7 @@ async function main() {
         serverStatus: serverStatus,
         action: action
       };
-      await sleep(500); 
+      await sleep(500);
     }
 
     const cycleEndTime = Date.now();
