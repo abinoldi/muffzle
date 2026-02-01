@@ -225,28 +225,55 @@ async function main() {
   console.log("🚀 Initializing Manager...");
 
   const packages = getPackages();
-  if (!packages.length) { console.log("❌ No Roblox packages found."); process.exit(0); }
+  if (!packages.length) { 
+    console.log("❌ No Roblox packages found."); 
+    process.exit(0); 
+  }
 
   let accounts = [];
   packages.sort();
+
+  // --- Tahap 1: Validasi dan Filter Akun ---
   for (const pkg of packages) {
     process.stdout.write(`Reading ${pkg}... \r`);
     const cookie = getRobloxCookie(pkg);
     const userInfo = await getUserInfo(cookie);
     
-    accounts.push({ pkg, cookie, userId: userInfo.id, username: userInfo.name });
+    // Filter: Hanya masukkan akun yang memiliki ID valid dan tidak Expired
+    if (!userInfo.id || userInfo.name === "Expired") {
+      console.log(`⚠️ Skipping ${pkg}: Cookie Expired atau Tidak Valid.`);
+      continue; 
+    }
+
+    accounts.push({ 
+      pkg, 
+      cookie, 
+      userId: userInfo.id, 
+      username: userInfo.name 
+    });
+
     lastRestartMap[pkg] = 0;
     accountStates[pkg] = {
-      username: userInfo.name || "Unknown",
+      username: userInfo.name,
       isRunning: false,
       serverStatus: "Waiting...",
       action: "-"
     };
   }
-  console.log(`\n✅ Loaded ${accounts.length} accounts.`);
 
+  if (accounts.length === 0) {
+    console.log("❌ Tidak ada akun valid untuk dijalankan.");
+    process.exit(0);
+  }
+
+  console.log(`\n✅ Loaded ${accounts.length} valid accounts.`);
+
+  // --- Tahap 2: Persiapan Server Code ---
   const codes = await fetchLinkCodes();
-  if (codes.length === 0) { console.log("⚠️ No codes found."); process.exit(1); }
+  if (codes.length === 0) { 
+    console.log("⚠️ No codes found."); 
+    process.exit(1); 
+  }
 
   let cleanCode = "";
   if (!AUTO_RANDOM_CODE) {
@@ -258,19 +285,21 @@ async function main() {
     cleanCode = codes[idx];
   }
 
-  // Atur posisi jendela XML sebelum mulai meluncurkan
-  autoArrangeXML(packages);
+  // Atur posisi jendela hanya untuk akun yang valid
+  autoArrangeXML(accounts.map(a => a.pkg));
 
-  console.log("\n🚀 Launching all instances with Presence Detection...");
+  // --- Tahap 3: Proses Launching dengan Deteksi In Game ---
+  console.log("\n🚀 Launching valid instances with Presence Detection...");
   for (const acc of accounts) {
     stopPackage(acc.pkg);
     
     let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
-    if(currentCode.includes("linkCode=")) currentCode = currentCode.split("linkCode=")[1].split("&")[0];
+    if(currentCode.includes("linkCode=")) {
+        currentCode = currentCode.split("linkCode=")[1].split("&")[0];
+    }
     
     const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
 
-    // 1. Jalankan aplikasi Roblox
     await launchPackage(acc.pkg, finalLaunchUrl);
     
     lastRestartMap[acc.pkg] = Date.now();
@@ -278,10 +307,10 @@ async function main() {
     accountStates[acc.pkg].serverStatus = "Logging in...";
     renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `Launching ${acc.username}...`);
 
-    // 2. Loop Deteksi Status "In Game"
+    // Loop Deteksi Status "In Game"
     let inGame = false;
     const startTime = Date.now();
-    const TIMEOUT = 180000; // Batas waktu 3 menit jika gagal masuk game
+    const TIMEOUT = 180000; // Timeout 3 menit
 
     while (!inGame && (Date.now() - startTime < TIMEOUT)) {
       const status = await getSinglePresence(acc.userId, acc.cookie);
@@ -291,22 +320,23 @@ async function main() {
       if (status === "In Game 🎮") {
         inGame = true;
       } else {
-        await sleep(5000); // Cek setiap 5 detik agar tidak spam API
+        await sleep(5000); // Cek setiap 5 detik
       }
     }
 
-    // 3. Jeda 30 detik setelah terdeteksi sudah di dalam game
+    // Jeda 30 detik setelah masuk game sebelum lanjut ke akun berikutnya
     if (inGame) {
       accountStates[acc.pkg].action = "⏳ Stabilization (30s)";
       renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `${acc.username} joined! Stabilizing...`);
       await sleep(30000); 
     } else {
-      accountStates[acc.pkg].action = "⚠️ Timeout/Error";
+      accountStates[acc.pkg].action = "⚠️ Timeout Join";
     }
     
     accountStates[acc.pkg].action = "-";
   }
 
+  // --- Tahap 4: Monitoring Loop ---
   console.log(`\n💤 Monitor active...`);
   while (true) {
     const cycleStartTime = Date.now();
@@ -317,6 +347,7 @@ async function main() {
       const isRunning = isProcessRunning(acc.pkg);
       let serverStatus = "Disabled ⚪";
       let isStuck = false;
+
       if (CHECK_SERVER_PRESENCE) {
           serverStatus = await getSinglePresence(acc.userId, acc.cookie);
           isStuck = serverStatus.includes("Online");
@@ -328,6 +359,7 @@ async function main() {
       let action = "-";
       let shouldRestart = false;
       let reason = "";
+
       if (AUTO_RECONNECT && CHECK_SERVER_PRESENCE) {
          if (!isRunning || isStuck) {
              shouldRestart = true;
@@ -347,7 +379,9 @@ async function main() {
           stopPackage(acc.pkg);
           action = `♻️ ${reason}`;
           let reconnectCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
-          if(reconnectCode.includes("linkCode=")) reconnectCode = reconnectCode.split("linkCode=")[1].split("&")[0];
+          if(reconnectCode.includes("linkCode=")) {
+              reconnectCode = reconnectCode.split("linkCode=")[1].split("&")[0];
+          }
           
           await launchPackage(acc.pkg, `roblox://placeID=${PLACE_ID}&linkCode=${reconnectCode}`);
           lastRestartMap[acc.pkg] = now;
