@@ -11,7 +11,7 @@ const PLACE_ID = "121864768012064";
 // STATUS MONITORING
 const CHECK_SERVER_PRESENCE = true;
 const AUTO_RECONNECT = false;
-const AUTO_RANDOM_CODE = true; 
+const AUTO_RANDOM_CODE = false; 
 
 // --- GRID SETTINGS (XML) ---
 const GRID_COLS = 4;        // 4 Kotak ke samping
