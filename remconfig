@@ -6,7 +6,7 @@
   "AutoTotem": true,
   "AutoTrade": false,
   "AutoUnfavoriteRubies": false,
-  "CatchDelay": 1.05,
+  "CatchDelay": 1.15,
   "Disable3DRendering": true,
   "DisableAudio": true,
   "DiscordWebhookEnabled": false,
