@@ -1,0 +1,414 @@
+#!/usr/bin/env node
+const { execSync } = require("child_process");
+const fs = require("fs");
+const readline = require("readline");
+const os = require("os");
+
+// --- CONFIGURATION ---
+const MSRV_URL = "https://ghostbin.axel.org/paste/ohdym/raw";
+const PLACE_ID = "121864768012064";
+
+// STATUS MONITORING
+const CHECK_SERVER_PRESENCE = true;
+const AUTO_RECONNECT = false;
+const AUTO_RANDOM_CODE = true; 
+
+// --- GRID SETTINGS (XML) ---
+const GRID_COLS = 3;        // 4 Kotak ke samping
+const BOX_SIZE = 150;       // Ukuran kotak (260px)
+const START_OFFSET_Y = 50;   // Jarak dari paling atas
+const GAP_X = 5;            // Jarak antar kolom (samping)
+const GAP_Y = 60;           // Jarak antar baris (atas-bawah) -> INI JARAKNYA
+
+// --- TIMING ---
+const LOOP_DELAY = 65000;
+const CHECK_INTERVAL = 60;
+
+function ensurePackage(pkg) {
+  try { require.resolve(pkg); } catch {
+    try { execSync(`npm install ${pkg}`, { stdio: "inherit" }); } catch (e) { process.exit(1); }
+  }
+}
+["axios", "cli-table3"].forEach(ensurePackage);
+
+const axios = require("axios");
+const Table = require("cli-table3");
+
+const TERMUX_PREFIX = "/data/data/com.termux/files/usr/bin";
+const NODE_PATH = `${TERMUX_PREFIX}/node`;
+const SQLITE_PATH = `${TERMUX_PREFIX}/sqlite3`;
+
+let lastRestartMap = {};
+let accountStates = {};
+
+function initSystem() {
+  try {
+    const uid = execSync("id -u").toString().trim();
+    if (uid !== "0") {
+      const node = fs.existsSync(NODE_PATH) ? NODE_PATH : "node";
+      execSync(`su -c "${node} ${__filename}"`, { stdio: "inherit" });
+      process.exit(0);
+    }
+    try { execSync("termux-wake-lock"); } catch {}
+  } catch (e) { process.exit(1); }
+}
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const ask = (q) => new Promise(r => {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  rl.question(q, (ans) => { rl.close(); r(ans); });
+});
+
+function getPackages() {
+  try {
+    return execSync("pm list packages | grep roblox", { encoding: "utf8" })
+      .split("\n").filter(l => l.trim()).map(l => l.replace("package:", "").trim());
+  } catch { return []; }
+}
+
+function getRobloxCookie(packageName) {
+  try {
+    const cookiesPath = `/data/data/${packageName}/app_webview/Default/Cookies`;
+    const tempPath = `/sdcard/temp_cookie_${packageName}_${Date.now()}.db`;
+    execSync(`cp "${cookiesPath}" "${tempPath}"`);
+    const sqliteCmd = fs.existsSync(SQLITE_PATH) ? SQLITE_PATH : "sqlite3";
+    const query = `${sqliteCmd} "${tempPath}" "SELECT value FROM cookies WHERE name = '.ROBLOSECURITY' LIMIT 1"`;
+    let cookie = execSync(query).toString().trim();
+    execSync(`rm "${tempPath}"`);
+    if (cookie && !cookie.startsWith("_")) cookie = "_" + cookie;
+    return cookie ? `.ROBLOSECURITY=${cookie}` : null;
+  } catch { return null; }
+}
+
+async function getUserInfo(cookie) {
+  if (!cookie) return { id: null, name: "No Cookie" };
+  try {
+    const res = await axios.get("https://users.roblox.com/v1/users/authenticated", {
+      headers: { Cookie: cookie, "User-Agent": "Mozilla/5.0 (Android 10; Mobile)" }
+    });
+    return { id: res.data.id, name: res.data.name };
+  } catch { return { id: null, name: "Expired" }; }
+}
+
+function stopPackage(pkg) {
+  try { 
+    const pid = execSync(`pidof ${pkg}`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
+    if (pid) execSync(`kill -9 ${pid}`, { stdio: 'ignore' });
+  } catch (e) {} 
+}
+
+// --- UPDATED XML ARRANGE LOGIC (WITH GAP) ---
+function autoArrangeXML(packages) {
+  console.log(`\n📐 Mengatur XML (Grid ${GRID_COLS}xN | Size ${BOX_SIZE} | Gap Y ${GAP_Y})...`);
+  
+  packages.sort(); 
+
+  packages.forEach((pkg, index) => {
+    // 1. Tentukan Baris & Kolom
+    const col = index % GRID_COLS;
+    const row = Math.floor(index / GRID_COLS);
+
+    // 2. Hitung Koordinat dengan GAP
+    // Left = (Urutan Kolom * (Ukuran + Jarak Samping))
+    const left = col * (BOX_SIZE + GAP_X);
+    
+    // Top = (Urutan Baris * (Ukuran + Jarak Bawah)) + Offset Awal
+    const top = (row * (BOX_SIZE + GAP_Y)) + START_OFFSET_Y;
+    
+    const right = left + BOX_SIZE;
+    const bottom = top + BOX_SIZE;
+
+    const prefsFile = `/data/data/${pkg}/shared_prefs/${pkg}_preferences.xml`;
+
+    const cmd = `su -c "
+      sed -i 's|app_cloner_current_window_left\\" value=\\"[0-9]*|app_cloner_current_window_left\\" value=\\"${left}|' ${prefsFile};
+      sed -i 's|app_cloner_current_window_top\\" value=\\"[0-9]*|app_cloner_current_window_top\\" value=\\"${top}|' ${prefsFile};
+      sed -i 's|app_cloner_current_window_right\\" value=\\"[0-9]*|app_cloner_current_window_right\\" value=\\"${right}|' ${prefsFile};
+      sed -i 's|app_cloner_current_window_bottom\\" value=\\"[0-9]*|app_cloner_current_window_bottom\\" value=\\"${bottom}|' ${prefsFile};
+      chmod 660 ${prefsFile}
+    "`;
+
+    try {
+      execSync(cmd, { stdio: 'ignore' });
+    } catch (e) {
+      console.log(`   ❌ Gagal set XML: ${pkg}`);
+    }
+  });
+  console.log("✅ Posisi XML tersimpan.");
+}
+
+async function launchPackage(pkg, url) {
+  try {
+    console.log(`\n🚀 Launching: ${pkg}`);
+    const cmd = `am start -n ${pkg}/com.roblox.client.ActivityProtocolLaunch ` +
+                `-a android.intent.action.VIEW -d "${url}"`;
+    execSync(cmd, { stdio: 'ignore' });
+  } catch (e) {
+      console.log(`❌ Error: ${e.message}`);
+  }
+}
+
+function isProcessRunning(pkg) {
+  try { 
+    execSync(`pidof ${pkg}`, { stdio: 'ignore' });
+    return true;
+  } catch { return false; }
+}
+
+async function getSinglePresence(userId, cookie) {
+  if (!userId || !cookie) return "Unknown ❓";
+  try {
+    const res = await axios.post("https://presence.roblox.com/v1/presence/users",
+      { userIds: [userId] },
+      { headers: { Cookie: cookie, "Content-Type": "application/json" } }
+    );
+    const p = res.data.userPresences[0];
+    if (!p) return "Unknown ❓";
+    if (p.userPresenceType === 2) return "In Game 🎮";
+    if (p.userPresenceType === 1) return "Online 🟡";
+    if (p.userPresenceType === 0) return "Offline ⚫";
+    return `Type ${p.userPresenceType}`;
+  } catch { return "API Error ⚠️"; }
+}
+
+async function fetchLinkCodes() {
+  console.log("🌐 Fetching codes...");
+  try {
+    const res = await axios.get(MSRV_URL);
+    return res.data.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  } catch (e) { return []; }
+}
+
+function getSystemStats() {
+  const cpus = os.cpus();
+  const idle = cpus.reduce((acc, cpu) => acc + cpu.times.idle, 0);
+  const total = cpus.reduce((acc, cpu) => {
+    return acc + cpu.times.user + cpu.times.nice + cpu.times.sys + cpu.times.irq + cpu.times.idle;
+  }, 0);
+  const cpuUsage = (100 - (idle / total) * 100).toFixed(1);
+
+  const totalMem = os.totalmem();
+  const totalGB = (totalMem / (1024 ** 3)).toFixed(2);
+  const usedGB = ((totalMem - os.freemem()) / (1024 ** 3)).toFixed(2);
+  const uptimeHrs = Math.floor(os.uptime() / 3600);
+
+  return { cpu: `${cpuUsage}%`, ram: `${usedGB}/${totalGB} GB`, uptime: `${uptimeHrs}h` };
+}
+
+function renderDashboard(cleanCode, statusMessage) {
+  console.clear();
+  const stats = getSystemStats();
+  console.log(`📱 SYSTEM: CPU ${stats.cpu} | RAM ${stats.ram} | UP ${stats.uptime}`);
+  console.log(`📏 MODE: XML GRID (${GRID_COLS} cols) | GAP Y: ${GAP_Y}px`);
+  
+  const modeStr = CHECK_SERVER_PRESENCE
+      ? (AUTO_RECONNECT ? "FULL (AUTO-FIX)" : "MONITOR ONLY")
+      : "NO-PING";
+  console.log(`📊 STATUS: ${statusMessage} | Mode: ${modeStr} | Code: ${cleanCode}`);
+  
+  const table = new Table({ head: ['User', 'State', 'Status', 'Action'], colWidths: [12, 12, 15, 20] });
+  Object.keys(accountStates).sort().forEach(pkg => {
+    const s = accountStates[pkg];
+    table.push([
+      s.username.substring(0, 10),
+      s.isRunning ? "Run 🟢" : "Dead 🔴",
+      s.serverStatus,
+      s.action
+    ]);
+  });
+  console.log(table.toString());
+}
+
+async function main() {
+  initSystem();
+  console.clear();
+  console.log("🚀 Initializing Manager...");
+
+  const packages = getPackages();
+  if (!packages.length) { 
+    console.log("❌ No Roblox packages found."); 
+    process.exit(0); 
+  }
+
+  let accounts = [];
+  packages.sort();
+
+  // --- Tahap 1: Validasi dan Filter Akun ---
+  for (const pkg of packages) {
+    process.stdout.write(`Reading ${pkg}... \r`);
+    const cookie = getRobloxCookie(pkg);
+    const userInfo = await getUserInfo(cookie);
+    
+    // Filter: Hanya masukkan akun yang memiliki ID valid dan tidak Expired
+    if (!userInfo.id || userInfo.name === "Expired") {
+      console.log(`⚠️ Skipping ${pkg}: Cookie Expired atau Tidak Valid.`);
+      continue; 
+    }
+
+    accounts.push({ 
+      pkg, 
+      cookie, 
+      userId: userInfo.id, 
+      username: userInfo.name 
+    });
+
+    lastRestartMap[pkg] = 0;
+    accountStates[pkg] = {
+      username: userInfo.name,
+      isRunning: false,
+      serverStatus: "Waiting...",
+      action: "-"
+    };
+  }
+
+  if (accounts.length === 0) {
+    console.log("❌ Tidak ada akun valid untuk dijalankan.");
+    process.exit(0);
+  }
+
+  console.log(`\n✅ Loaded ${accounts.length} valid accounts.`);
+
+  // --- Tahap 2: Persiapan Server Code ---
+  const codes = await fetchLinkCodes();
+  if (codes.length === 0) { 
+    console.log("⚠️ No codes found."); 
+    process.exit(1); 
+  }
+
+  let cleanCode = "";
+  if (!AUTO_RANDOM_CODE) {
+    console.log("\n📜 Available Codes:");
+    codes.forEach((code, index) => console.log(`[${index + 1}] ${code}`));
+    const selection = await ask("\n👉 Choose Server: ");
+    const idx = parseInt(selection) - 1;
+    if (isNaN(idx) || idx < 0 || idx >= codes.length) process.exit(1);
+    cleanCode = codes[idx];
+  }
+
+  // Atur posisi jendela hanya untuk akun yang valid
+  autoArrangeXML(accounts.map(a => a.pkg));
+
+  // --- Tahap 3: Proses Launching dengan Deteksi In Game ---
+  console.log("\n🚀 Launching valid instances with Presence Detection...");
+  for (const acc of accounts) {
+    stopPackage(acc.pkg);
+    
+    let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
+    if(currentCode.includes("linkCode=")) {
+        currentCode = currentCode.split("linkCode=")[1].split("&")[0];
+    }
+    
+    const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
+
+    await launchPackage(acc.pkg, finalLaunchUrl);
+    
+    lastRestartMap[acc.pkg] = Date.now();
+    accountStates[acc.pkg].isRunning = true;
+    accountStates[acc.pkg].serverStatus = "Logging in...";
+    renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `Launching ${acc.username}...`);
+
+    // Loop Deteksi Status "In Game"
+    let inGame = false;
+    const startTime = Date.now();
+    const TIMEOUT = 180000; // Timeout 3 menit
+
+    while (!inGame && (Date.now() - startTime < TIMEOUT)) {
+      const status = await getSinglePresence(acc.userId, acc.cookie);
+      accountStates[acc.pkg].serverStatus = status;
+      renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `Waiting for ${acc.username} to join...`);
+
+      if (status === "In Game 🎮") {
+        inGame = true;
+      } else {
+        await sleep(5000); // Cek setiap 5 detik
+      }
+    }
+
+    // Jeda 30 detik setelah masuk game sebelum lanjut ke akun berikutnya
+    if (inGame) {
+      accountStates[acc.pkg].action = "⏳ Stabilization (30s)";
+      renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `${acc.username} joined! Stabilizing...`);
+      await sleep(30000); 
+    } else {
+      accountStates[acc.pkg].action = "⚠️ Timeout Join";
+    }
+    
+    accountStates[acc.pkg].action = "-";
+  }
+
+  // --- Tahap 4: Monitoring Loop ---
+  console.log(`\n💤 Monitor active...`);
+  while (true) {
+    const cycleStartTime = Date.now();
+    for (const acc of accounts) {
+      accountStates[acc.pkg].action = "🔎 CHECKING...";
+      renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `Checking ${acc.username}...`);
+      
+      const isRunning = isProcessRunning(acc.pkg);
+      let serverStatus = "Disabled ⚪";
+      let isStuck = false;
+
+      if (CHECK_SERVER_PRESENCE) {
+          serverStatus = await getSinglePresence(acc.userId, acc.cookie);
+          isStuck = serverStatus.includes("Online");
+      }
+      
+      const now = Date.now();
+      const timeSinceRestart = (now - lastRestartMap[acc.pkg]) / 1000;
+      
+      let action = "-";
+      let shouldRestart = false;
+      let reason = "";
+
+      if (AUTO_RECONNECT && CHECK_SERVER_PRESENCE) {
+         if (!isRunning || isStuck) {
+             shouldRestart = true;
+             reason = isRunning ? "Stuck" : "Crash";
+         }
+      } else if (AUTO_RECONNECT && !CHECK_SERVER_PRESENCE) {
+         if (!isRunning) {
+             shouldRestart = true;
+             reason = "Crash";
+         }
+      }
+
+      if (shouldRestart) {
+        if (timeSinceRestart < 60) {
+          action = `⏳ Wait (${Math.floor(60 - timeSinceRestart)}s)`;
+        } else {
+          stopPackage(acc.pkg);
+          action = `♻️ ${reason}`;
+          let reconnectCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
+          if(reconnectCode.includes("linkCode=")) {
+              reconnectCode = reconnectCode.split("linkCode=")[1].split("&")[0];
+          }
+          
+          await launchPackage(acc.pkg, `roblox://placeID=${PLACE_ID}&linkCode=${reconnectCode}`);
+          lastRestartMap[acc.pkg] = now;
+        }
+      } else if (!isRunning) {
+         action = "⚠️ Dead (No Fix)";
+      }
+      
+      accountStates[acc.pkg] = {
+        username: acc.username,
+        isRunning: isRunning,
+        serverStatus: serverStatus,
+        action: action
+      };
+      await sleep(500);
+    }
+
+    const cycleEndTime = Date.now();
+    const remainingTime = CHECK_INTERVAL - ((cycleEndTime - cycleStartTime) / 1000);
+    if (remainingTime > 0) {
+      Object.keys(accountStates).forEach(pkg => {
+          if(accountStates[pkg].action === "🔎 CHECKING...") accountStates[pkg].action = "-";
+      });
+      renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `Sleeping (${Math.floor(remainingTime)}s)`);
+      await sleep(remainingTime * 1000);
+    }
+  }
+}
+
+main();
