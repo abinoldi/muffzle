@@ -1,0 +1,21 @@
+{
+  "AutoEquip": true,
+  "AutoFavorite": true,
+  "AutoSell": true,
+  "AutoTeleport": true,
+  "AutoTotem": true,
+  "AutoTrade": false,
+  "AutoUnfavoriteRubies": false,
+  "CatchDelay": 0.12,
+  "DiscordWebhookEnabled": false,
+  "DiscordWebhookUrl": "",
+  "FishingEnabled": true,
+  "PotatoMode": true,
+  "SelectedLocation": "Treasure Room",
+  "SellDelay": 65.0,
+  "TargetUsername": "mm3kenak",
+  "TradeDelay": 6.5,
+  "TradeMode": "SECRETS_FIRST",
+  "WebhookEnabled": true,
+  "WebhookUrl": "http://43.134.116.2:5000/webhook/fishit"
+}
