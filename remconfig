@@ -6,7 +6,7 @@
   "AutoTotem": true,
   "AutoTrade": false,
   "AutoUnfavoriteRubies": false,
-  "CatchDelay": 0.12,
+  "CatchDelay": 0.15,
   "DiscordWebhookEnabled": false,
   "DiscordWebhookUrl": "",
   "FishingEnabled": true,
