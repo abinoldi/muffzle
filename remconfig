@@ -1,7 +1,7 @@
 {
   "FishingEnabled": true,
   "AutoEquip": true,
-  "CatchDelay": 1,
+  "CatchDelay": 0.8,
   "AutoSell": true,
   "SellDelay": 65,
   "AutoFavorite": true,
