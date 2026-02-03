@@ -1,7 +1,7 @@
 {
   "FishingEnabled": true,
   "AutoEquip": true,
-  "CatchDelay": 0.95,
+  "CatchDelay": 1.3,
   "AutoSell": true,
   "SellDelay": 65,
   "AutoFavorite": true,
@@ -9,7 +9,7 @@
   "DiscordWebhookEnabled": false,
   "DiscordWebhookUrl": "",
   "AutoTeleport": true,
-  "SelectedLocation": "Crater Island",
+  "SelectedLocation": "Treasure Room",
   "AutoTotem": true,
   "PotatoMode": true,
   "AutoTrade": false,
