@@ -10,7 +10,7 @@ const PLACE_ID = "121864768012064";
 
 // STATUS MONITORING
 const CHECK_SERVER_PRESENCE = true;
-const AUTO_RECONNECT = true;     // Set TRUE to enable auto-fix
+const AUTO_RECONNECT = true;     
 const AUTO_RANDOM_CODE = true; 
 
 // --- GRID SETTINGS (XML) ---
@@ -22,7 +22,7 @@ const GAP_Y = 60;
 
 // --- TIMING ---
 const CHECK_INTERVAL = 60;
-const LAUNCH_DELAY = 50000; // 50 Seconds delay per launch
+const POST_GAME_WAIT = 50000; // 50 Seconds wait AFTER entering game
 
 function ensurePackage(pkg) {
   try { require.resolve(pkg); } catch {
@@ -282,44 +282,62 @@ async function main() {
 
   autoArrangeXML(accounts.map(a => a.pkg));
 
-  // --- Tahap 3: Proses Launching ---
+  // --- Tahap 3: Proses Launching dengan Wait-for-InGame ---
   console.log("\n🚀 Launching valid instances...");
+  
   for (let i = 0; i < accounts.length; i++) {
     const acc = accounts[i];
     
-    // Stop before launch to ensure clean slate
+    // 1. Force Stop & Launch
     stopPackage(acc.pkg);
     
     let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
     if(currentCode.includes("linkCode=")) {
         currentCode = currentCode.split("linkCode=")[1].split("&")[0];
     }
-    
     const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
 
     await launchPackage(acc.pkg, finalLaunchUrl);
     
     lastRestartMap[acc.pkg] = Date.now();
     accountStates[acc.pkg].isRunning = true;
-    accountStates[acc.pkg].serverStatus = "Logging in...";
+    accountStates[acc.pkg].serverStatus = "Joining...";
     
-    // Show countdown on dashboard if not the last account
-    if (i < accounts.length - 1) {
-        let remaining = LAUNCH_DELAY / 1000;
-        const timer = setInterval(() => {
-            renderDashboard(
-                AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-                `Launching ${acc.username}... Next in ${remaining--}s`
-            );
-            if (remaining < 0) clearInterval(timer);
-        }, 1000);
-        
-        await sleep(LAUNCH_DELAY);
-        clearInterval(timer);
-    } else {
-        renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `Launched ${acc.username}!`);
-        await sleep(5000); // Short delay after last one
+    // 2. Loop Waiting for "In Game" (INFINITE WAIT)
+    let inGame = false;
+    const startTime = Date.now();
+    
+    while (!inGame) {
+      // Update dashboard status
+      renderDashboard(
+          AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+          `⏳ ${acc.username} Joining... (${Math.floor((Date.now() - startTime)/1000)}s)`
+      );
+
+      const status = await getSinglePresence(acc.userId, acc.cookie);
+      accountStates[acc.pkg].serverStatus = status;
+
+      if (status === "In Game 🎮") {
+        inGame = true;
+      } else {
+        await sleep(5000); // Check every 5s
+      }
     }
+
+    // 3. Stabilization Wait (50s) AFTER In Game
+    accountStates[acc.pkg].serverStatus = "In Game 🎮";
+    let remaining = POST_GAME_WAIT / 1000;
+    
+    const timer = setInterval(() => {
+        renderDashboard(
+            AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+            `✅ ${acc.username} In Game! Stabilizing... ${remaining--}s`
+        );
+        if (remaining < 0) clearInterval(timer);
+    }, 1000);
+
+    await sleep(POST_GAME_WAIT);
+    clearInterval(timer);
   }
 
   // --- Tahap 4: Monitoring Loop ---
