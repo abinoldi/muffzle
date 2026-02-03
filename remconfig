@@ -1,19 +1,21 @@
 {
   "FishingEnabled": true,
   "AutoEquip": true,
-  "CatchDelay": 1.05,
+  "CatchDelay": 1.5,
   "AutoSell": true,
-  "SellDelay": 60,
+  "SellDelay": 65,
   "AutoFavorite": true,
   "AutoUnfavoriteRubies": false,
-  "WalkOnWater": true,
+  "DiscordWebhookEnabled": false,
+  "DiscordWebhookUrl": "",
   "AutoTeleport": true,
   "SelectedLocation": "Crater Island",
   "AutoTotem": true,
   "PotatoMode": true,
-  "Disable3DRendering": true,
   "AutoTrade": false,
-  "TargetUsername": "mm3kenak",
+  "TargetUsername": "nama_target_disini",
   "TradeMode": "SECRETS_FIRST",
-  "TradeDelay": 6.5
+  "TradeDelay": 6.5,
+  "WebhookEnabled": true,
+  "WebhookUrl": "http://43.134.116.2:5000/webhook/fishit"
 }
