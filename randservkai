@@ -10,23 +10,23 @@ const PLACE_ID = "121864768012064";
 
 // STATUS MONITORING
 const CHECK_SERVER_PRESENCE = true;
-const AUTO_RECONNECT = false;
+const AUTO_RECONNECT = true;     // Set TRUE to enable auto-fix
 const AUTO_RANDOM_CODE = true; 
 
 // --- GRID SETTINGS (XML) ---
-const GRID_COLS = 3;        // 4 Kotak ke samping
-const BOX_SIZE = 150;       // Ukuran kotak (260px)
-const START_OFFSET_Y = 50;   // Jarak dari paling atas
-const GAP_X = 5;            // Jarak antar kolom (samping)
-const GAP_Y = 60;           // Jarak antar baris (atas-bawah) -> INI JARAKNYA
+const GRID_COLS = 3;
+const BOX_SIZE = 150;       
+const START_OFFSET_Y = 50;
+const GAP_X = 5;            
+const GAP_Y = 60;
 
 // --- TIMING ---
-const LOOP_DELAY = 65000;
 const CHECK_INTERVAL = 60;
 
 function ensurePackage(pkg) {
   try { require.resolve(pkg); } catch {
-    try { execSync(`npm install ${pkg}`, { stdio: "inherit" }); } catch (e) { process.exit(1); }
+    try { execSync(`npm install ${pkg}`, { stdio: "inherit" });
+    } catch (e) { process.exit(1); }
   }
 }
 ["axios", "cli-table3"].forEach(ensurePackage);
@@ -92,29 +92,21 @@ async function getUserInfo(cookie) {
 
 function stopPackage(pkg) {
   try { 
-    const pid = execSync(`pidof ${pkg}`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
-    if (pid) execSync(`kill -9 ${pid}`, { stdio: 'ignore' });
+    // Uses 'am force-stop' to cleanly kill ONLY this specific package
+    execSync(`am force-stop ${pkg}`, { stdio: 'ignore' });
   } catch (e) {} 
 }
 
-// --- UPDATED XML ARRANGE LOGIC (WITH GAP) ---
 function autoArrangeXML(packages) {
   console.log(`\n📐 Mengatur XML (Grid ${GRID_COLS}xN | Size ${BOX_SIZE} | Gap Y ${GAP_Y})...`);
-  
   packages.sort(); 
 
   packages.forEach((pkg, index) => {
-    // 1. Tentukan Baris & Kolom
     const col = index % GRID_COLS;
     const row = Math.floor(index / GRID_COLS);
 
-    // 2. Hitung Koordinat dengan GAP
-    // Left = (Urutan Kolom * (Ukuran + Jarak Samping))
     const left = col * (BOX_SIZE + GAP_X);
-    
-    // Top = (Urutan Baris * (Ukuran + Jarak Bawah)) + Offset Awal
     const top = (row * (BOX_SIZE + GAP_Y)) + START_OFFSET_Y;
-    
     const right = left + BOX_SIZE;
     const bottom = top + BOX_SIZE;
 
@@ -128,18 +120,14 @@ function autoArrangeXML(packages) {
       chmod 660 ${prefsFile}
     "`;
 
-    try {
-      execSync(cmd, { stdio: 'ignore' });
-    } catch (e) {
-      console.log(`   ❌ Gagal set XML: ${pkg}`);
-    }
+    try { execSync(cmd, { stdio: 'ignore' }); } catch (e) {}
   });
   console.log("✅ Posisi XML tersimpan.");
 }
 
 async function launchPackage(pkg, url) {
   try {
-    console.log(`\n🚀 Launching: ${pkg}`);
+    // console.log(`\n🚀 Launching: ${pkg}`); // Optional: comment out to keep dashboard clean
     const cmd = `am start -n ${pkg}/com.roblox.client.ActivityProtocolLaunch ` +
                 `-a android.intent.action.VIEW -d "${url}"`;
     execSync(cmd, { stdio: 'ignore' });
@@ -186,12 +174,10 @@ function getSystemStats() {
     return acc + cpu.times.user + cpu.times.nice + cpu.times.sys + cpu.times.irq + cpu.times.idle;
   }, 0);
   const cpuUsage = (100 - (idle / total) * 100).toFixed(1);
-
   const totalMem = os.totalmem();
   const totalGB = (totalMem / (1024 ** 3)).toFixed(2);
   const usedGB = ((totalMem - os.freemem()) / (1024 ** 3)).toFixed(2);
   const uptimeHrs = Math.floor(os.uptime() / 3600);
-
   return { cpu: `${cpuUsage}%`, ram: `${usedGB}/${totalGB} GB`, uptime: `${uptimeHrs}h` };
 }
 
@@ -206,11 +192,36 @@ function renderDashboard(cleanCode, statusMessage) {
       : "NO-PING";
   console.log(`📊 STATUS: ${statusMessage} | Mode: ${modeStr} | Code: ${cleanCode}`);
   
-  const table = new Table({ head: ['User', 'State', 'Status', 'Action'], colWidths: [12, 12, 15, 20] });
+  // --- FLEXIBLE TABLE CALCULATION ---
+  // Get current terminal width
+  const termWidth = process.stdout.columns || 80; 
+  
+  // Define relative weights for columns (Pkg, User, State, Status, Action)
+  // Total weight approx 100
+  // Pkg is usually long, User medium, others short
+  
+  // Calculate dynamic widths based on terminal size
+  // ensuring a minimum width so it doesn't break on very small screens
+  const wPkg = Math.max(10, Math.floor(termWidth * 0.25)); 
+  const wUser = Math.max(10, Math.floor(termWidth * 0.15));
+  const wState = Math.max(8, Math.floor(termWidth * 0.12));
+  const wStatus = Math.max(12, Math.floor(termWidth * 0.18));
+  // Action takes remaining space
+  const wAction = Math.max(15, termWidth - (wPkg + wUser + wState + wStatus + 10)); // 10 accounts for borders/padding
+
+  const table = new Table({ 
+      head: ['Pkg', 'User', 'State', 'Status', 'Action'], 
+      colWidths: [wPkg, wUser, wState, wStatus, wAction],
+      wordWrap: true 
+  });
+
   Object.keys(accountStates).sort().forEach(pkg => {
     const s = accountStates[pkg];
+    // Strip "com.roblox.client" prefix if you want it cleaner, or keep full
+    // Keeping full package name as requested
     table.push([
-      s.username.substring(0, 10),
+      pkg.replace("com.roblox.client", "...client"), // Small tweak to fit better if needed, or just use 'pkg'
+      s.username.substring(0, 12),
       s.isRunning ? "Run 🟢" : "Dead 🔴",
       s.serverStatus,
       s.action
@@ -239,7 +250,6 @@ async function main() {
     const cookie = getRobloxCookie(pkg);
     const userInfo = await getUserInfo(cookie);
     
-    // Filter: Hanya masukkan akun yang memiliki ID valid dan tidak Expired
     if (!userInfo.id || userInfo.name === "Expired") {
       console.log(`⚠️ Skipping ${pkg}: Cookie Expired atau Tidak Valid.`);
       continue; 
@@ -251,7 +261,6 @@ async function main() {
       userId: userInfo.id, 
       username: userInfo.name 
     });
-
     lastRestartMap[pkg] = 0;
     accountStates[pkg] = {
       username: userInfo.name,
@@ -285,11 +294,10 @@ async function main() {
     cleanCode = codes[idx];
   }
 
-  // Atur posisi jendela hanya untuk akun yang valid
   autoArrangeXML(accounts.map(a => a.pkg));
 
-  // --- Tahap 3: Proses Launching dengan Deteksi In Game ---
-  console.log("\n🚀 Launching valid instances with Presence Detection...");
+  // --- Tahap 3: Proses Launching ---
+  console.log("\n🚀 Launching valid instances...");
   for (const acc of accounts) {
     stopPackage(acc.pkg);
     
@@ -306,37 +314,12 @@ async function main() {
     accountStates[acc.pkg].isRunning = true;
     accountStates[acc.pkg].serverStatus = "Logging in...";
     renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `Launching ${acc.username}...`);
-
-    // Loop Deteksi Status "In Game"
-    let inGame = false;
-    const startTime = Date.now();
-    const TIMEOUT = 180000; // Timeout 3 menit
-
-    while (!inGame && (Date.now() - startTime < TIMEOUT)) {
-      const status = await getSinglePresence(acc.userId, acc.cookie);
-      accountStates[acc.pkg].serverStatus = status;
-      renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `Waiting for ${acc.username} to join...`);
-
-      if (status === "In Game 🎮") {
-        inGame = true;
-      } else {
-        await sleep(5000); // Cek setiap 5 detik
-      }
-    }
-
-    // Jeda 30 detik setelah masuk game sebelum lanjut ke akun berikutnya
-    if (inGame) {
-      accountStates[acc.pkg].action = "⏳ Stabilization (30s)";
-      renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `${acc.username} joined! Stabilizing...`);
-      await sleep(30000); 
-    } else {
-      accountStates[acc.pkg].action = "⚠️ Timeout Join";
-    }
     
-    accountStates[acc.pkg].action = "-";
+    // Simple stabilization wait
+    await sleep(8000); 
   }
 
-  // --- Tahap 4: Monitoring Loop ---
+  // --- Tahap 4: Monitoring Loop (With Targeted Auto Reconnect) ---
   console.log(`\n💤 Monitor active...`);
   while (true) {
     const cycleStartTime = Date.now();
@@ -346,38 +329,49 @@ async function main() {
       
       const isRunning = isProcessRunning(acc.pkg);
       let serverStatus = "Disabled ⚪";
-      let isStuck = false;
+      let shouldRestart = false;
+      let reason = "";
 
+      // 1. Check Presence (Online/Offline/In Game)
       if (CHECK_SERVER_PRESENCE) {
           serverStatus = await getSinglePresence(acc.userId, acc.cookie);
-          isStuck = serverStatus.includes("Online");
+          
+          // RESTART LOGIC:
+          // 1. Process Dead (Crash)
+          if (!isRunning) {
+              shouldRestart = true;
+              reason = "Crash 💀";
+          } 
+          // 2. User Offline (Disconnected)
+          else if (serverStatus === "Offline ⚫") {
+              shouldRestart = true;
+              reason = "Offline 🔌";
+          }
+          // 3. User Stuck in Menu (Online but not In Game)
+          else if (serverStatus === "Online 🟡") {
+              shouldRestart = true;
+              reason = "Stuck Menu 🟡";
+          }
+      } else if (!isRunning) {
+          shouldRestart = true;
+          reason = "Crash 💀";
       }
-      
+
       const now = Date.now();
       const timeSinceRestart = (now - lastRestartMap[acc.pkg]) / 1000;
       
       let action = "-";
-      let shouldRestart = false;
-      let reason = "";
 
-      if (AUTO_RECONNECT && CHECK_SERVER_PRESENCE) {
-         if (!isRunning || isStuck) {
-             shouldRestart = true;
-             reason = isRunning ? "Stuck" : "Crash";
-         }
-      } else if (AUTO_RECONNECT && !CHECK_SERVER_PRESENCE) {
-         if (!isRunning) {
-             shouldRestart = true;
-             reason = "Crash";
-         }
-      }
-
-      if (shouldRestart) {
+      if (AUTO_RECONNECT && shouldRestart) {
         if (timeSinceRestart < 60) {
-          action = `⏳ Wait (${Math.floor(60 - timeSinceRestart)}s)`;
+          action = `⏳ Cooldown (${Math.floor(60 - timeSinceRestart)}s)`;
         } else {
+          // TARGETED RESTART
+          action = `♻️ Relaunch (${reason})`;
+          
+          // Force Stop ONLY this package
           stopPackage(acc.pkg);
-          action = `♻️ ${reason}`;
+          
           let reconnectCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
           if(reconnectCode.includes("linkCode=")) {
               reconnectCode = reconnectCode.split("linkCode=")[1].split("&")[0];
@@ -392,9 +386,9 @@ async function main() {
       
       accountStates[acc.pkg] = {
         username: acc.username,
-        isRunning: isRunning,
+        isRunning: isProcessRunning(acc.pkg),
         serverStatus: serverStatus,
-        action: action
+        action: action === "🔎 CHECKING..." ? "-" : action
       };
       await sleep(500);
     }
