@@ -22,7 +22,7 @@ const GAP_Y = 60;           // Jarak antar baris (atas-bawah) -> INI JARAKNYA
 
 // --- TIMING ---
 const LOOP_DELAY = 65000;
-const CHECK_INTERVAL = 60;
+const CHECK_INTERVAL = 600;
 
 function ensurePackage(pkg) {
   try { require.resolve(pkg); } catch {
