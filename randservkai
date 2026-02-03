@@ -22,6 +22,7 @@ const GAP_Y = 60;
 
 // --- TIMING ---
 const CHECK_INTERVAL = 60;
+const LAUNCH_DELAY = 50000; // 50 Seconds delay per launch
 
 function ensurePackage(pkg) {
   try { require.resolve(pkg); } catch {
@@ -92,7 +93,6 @@ async function getUserInfo(cookie) {
 
 function stopPackage(pkg) {
   try { 
-    // Uses 'am force-stop' to cleanly kill ONLY this specific package
     execSync(`am force-stop ${pkg}`, { stdio: 'ignore' });
   } catch (e) {} 
 }
@@ -127,7 +127,6 @@ function autoArrangeXML(packages) {
 
 async function launchPackage(pkg, url) {
   try {
-    // console.log(`\n🚀 Launching: ${pkg}`); // Optional: comment out to keep dashboard clean
     const cmd = `am start -n ${pkg}/com.roblox.client.ActivityProtocolLaunch ` +
                 `-a android.intent.action.VIEW -d "${url}"`;
     execSync(cmd, { stdio: 'ignore' });
@@ -192,22 +191,13 @@ function renderDashboard(cleanCode, statusMessage) {
       : "NO-PING";
   console.log(`📊 STATUS: ${statusMessage} | Mode: ${modeStr} | Code: ${cleanCode}`);
   
-  // --- FLEXIBLE TABLE CALCULATION ---
-  // Get current terminal width
   const termWidth = process.stdout.columns || 80; 
   
-  // Define relative weights for columns (Pkg, User, State, Status, Action)
-  // Total weight approx 100
-  // Pkg is usually long, User medium, others short
-  
-  // Calculate dynamic widths based on terminal size
-  // ensuring a minimum width so it doesn't break on very small screens
   const wPkg = Math.max(10, Math.floor(termWidth * 0.25)); 
   const wUser = Math.max(10, Math.floor(termWidth * 0.15));
   const wState = Math.max(8, Math.floor(termWidth * 0.12));
   const wStatus = Math.max(12, Math.floor(termWidth * 0.18));
-  // Action takes remaining space
-  const wAction = Math.max(15, termWidth - (wPkg + wUser + wState + wStatus + 10)); // 10 accounts for borders/padding
+  const wAction = Math.max(15, termWidth - (wPkg + wUser + wState + wStatus + 10)); 
 
   const table = new Table({ 
       head: ['Pkg', 'User', 'State', 'Status', 'Action'], 
@@ -217,10 +207,8 @@ function renderDashboard(cleanCode, statusMessage) {
 
   Object.keys(accountStates).sort().forEach(pkg => {
     const s = accountStates[pkg];
-    // Strip "com.roblox.client" prefix if you want it cleaner, or keep full
-    // Keeping full package name as requested
     table.push([
-      pkg.replace("com.roblox.client", "...client"), // Small tweak to fit better if needed, or just use 'pkg'
+      pkg.replace("com.roblox.client", "...client"), 
       s.username.substring(0, 12),
       s.isRunning ? "Run 🟢" : "Dead 🔴",
       s.serverStatus,
@@ -244,7 +232,6 @@ async function main() {
   let accounts = [];
   packages.sort();
 
-  // --- Tahap 1: Validasi dan Filter Akun ---
   for (const pkg of packages) {
     process.stdout.write(`Reading ${pkg}... \r`);
     const cookie = getRobloxCookie(pkg);
@@ -277,7 +264,6 @@ async function main() {
 
   console.log(`\n✅ Loaded ${accounts.length} valid accounts.`);
 
-  // --- Tahap 2: Persiapan Server Code ---
   const codes = await fetchLinkCodes();
   if (codes.length === 0) { 
     console.log("⚠️ No codes found."); 
@@ -298,7 +284,10 @@ async function main() {
 
   // --- Tahap 3: Proses Launching ---
   console.log("\n🚀 Launching valid instances...");
-  for (const acc of accounts) {
+  for (let i = 0; i < accounts.length; i++) {
+    const acc = accounts[i];
+    
+    // Stop before launch to ensure clean slate
     stopPackage(acc.pkg);
     
     let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
@@ -313,13 +302,27 @@ async function main() {
     lastRestartMap[acc.pkg] = Date.now();
     accountStates[acc.pkg].isRunning = true;
     accountStates[acc.pkg].serverStatus = "Logging in...";
-    renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `Launching ${acc.username}...`);
     
-    // Simple stabilization wait
-    await sleep(8000); 
+    // Show countdown on dashboard if not the last account
+    if (i < accounts.length - 1) {
+        let remaining = LAUNCH_DELAY / 1000;
+        const timer = setInterval(() => {
+            renderDashboard(
+                AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+                `Launching ${acc.username}... Next in ${remaining--}s`
+            );
+            if (remaining < 0) clearInterval(timer);
+        }, 1000);
+        
+        await sleep(LAUNCH_DELAY);
+        clearInterval(timer);
+    } else {
+        renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `Launched ${acc.username}!`);
+        await sleep(5000); // Short delay after last one
+    }
   }
 
-  // --- Tahap 4: Monitoring Loop (With Targeted Auto Reconnect) ---
+  // --- Tahap 4: Monitoring Loop ---
   console.log(`\n💤 Monitor active...`);
   while (true) {
     const cycleStartTime = Date.now();
@@ -332,22 +335,17 @@ async function main() {
       let shouldRestart = false;
       let reason = "";
 
-      // 1. Check Presence (Online/Offline/In Game)
       if (CHECK_SERVER_PRESENCE) {
           serverStatus = await getSinglePresence(acc.userId, acc.cookie);
           
-          // RESTART LOGIC:
-          // 1. Process Dead (Crash)
           if (!isRunning) {
               shouldRestart = true;
               reason = "Crash 💀";
           } 
-          // 2. User Offline (Disconnected)
           else if (serverStatus === "Offline ⚫") {
               shouldRestart = true;
               reason = "Offline 🔌";
           }
-          // 3. User Stuck in Menu (Online but not In Game)
           else if (serverStatus === "Online 🟡") {
               shouldRestart = true;
               reason = "Stuck Menu 🟡";
@@ -366,10 +364,7 @@ async function main() {
         if (timeSinceRestart < 60) {
           action = `⏳ Cooldown (${Math.floor(60 - timeSinceRestart)}s)`;
         } else {
-          // TARGETED RESTART
           action = `♻️ Relaunch (${reason})`;
-          
-          // Force Stop ONLY this package
           stopPackage(acc.pkg);
           
           let reconnectCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
