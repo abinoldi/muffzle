@@ -25,9 +25,11 @@ const CHECK_INTERVAL = 60;
 const POST_GAME_WAIT = 50000; // 50 Seconds wait AFTER entering game
 
 function ensurePackage(pkg) {
-  try { require.resolve(pkg); } catch {
+  try { require.resolve(pkg);
+  } catch {
     try { execSync(`npm install ${pkg}`, { stdio: "inherit" });
-    } catch (e) { process.exit(1); }
+    } catch (e) { process.exit(1);
+    }
   }
 }
 ["axios", "cli-table3"].forEach(ensurePackage);
@@ -50,7 +52,8 @@ function initSystem() {
       execSync(`su -c "${node} ${__filename}"`, { stdio: "inherit" });
       process.exit(0);
     }
-    try { execSync("termux-wake-lock"); } catch {}
+    try { execSync("termux-wake-lock");
+    } catch {}
   } catch (e) { process.exit(1); }
 }
 
@@ -88,7 +91,8 @@ async function getUserInfo(cookie) {
       headers: { Cookie: cookie, "User-Agent": "Mozilla/5.0 (Android 10; Mobile)" }
     });
     return { id: res.data.id, name: res.data.name };
-  } catch { return { id: null, name: "Expired" }; }
+  } catch { return { id: null, name: "Expired" };
+  }
 }
 
 function stopPackage(pkg) {
@@ -120,7 +124,8 @@ function autoArrangeXML(packages) {
       chmod 660 ${prefsFile}
     "`;
 
-    try { execSync(cmd, { stdio: 'ignore' }); } catch (e) {}
+    try { execSync(cmd, { stdio: 'ignore' });
+    } catch (e) {}
   });
   console.log("✅ Posisi XML tersimpan.");
 }
@@ -191,20 +196,17 @@ function renderDashboard(cleanCode, statusMessage) {
       : "NO-PING";
   console.log(`📊 STATUS: ${statusMessage} | Mode: ${modeStr} | Code: ${cleanCode}`);
   
-  const termWidth = process.stdout.columns || 80; 
-  
+  const termWidth = process.stdout.columns || 80;
   const wPkg = Math.max(10, Math.floor(termWidth * 0.25)); 
   const wUser = Math.max(10, Math.floor(termWidth * 0.15));
   const wState = Math.max(8, Math.floor(termWidth * 0.12));
   const wStatus = Math.max(12, Math.floor(termWidth * 0.18));
-  const wAction = Math.max(15, termWidth - (wPkg + wUser + wState + wStatus + 10)); 
-
+  const wAction = Math.max(15, termWidth - (wPkg + wUser + wState + wStatus + 10));
   const table = new Table({ 
       head: ['Pkg', 'User', 'State', 'Status', 'Action'], 
       colWidths: [wPkg, wUser, wState, wStatus, wAction],
       wordWrap: true 
   });
-
   Object.keys(accountStates).sort().forEach(pkg => {
     const s = accountStates[pkg];
     table.push([
@@ -216,6 +218,44 @@ function renderDashboard(cleanCode, statusMessage) {
     ]);
   });
   console.log(table.toString());
+}
+
+// --- FUNGSI BARU: Menunggu In Game & Stabilisasi ---
+async function waitForInGame(acc, cleanCode) {
+    let inGame = false;
+    const startTime = Date.now();
+    
+    // Loop sampai status In Game
+    while (!inGame) {
+        renderDashboard(
+            AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+            `⏳ ${acc.username} Joining... (${Math.floor((Date.now() - startTime)/1000)}s)`
+        );
+
+        const status = await getSinglePresence(acc.userId, acc.cookie);
+        accountStates[acc.pkg].serverStatus = status;
+
+        if (status === "In Game 🎮") {
+            inGame = true;
+        } else {
+            await sleep(5000); // Cek setiap 5 detik
+        }
+    }
+
+    // Stabilisasi (Wait POST_GAME_WAIT)
+    accountStates[acc.pkg].serverStatus = "In Game 🎮";
+    let remaining = POST_GAME_WAIT / 1000;
+    
+    const timer = setInterval(() => {
+        renderDashboard(
+            AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+            `✅ ${acc.username} In Game! Stabilizing... ${remaining--}s`
+        );
+        if (remaining < 0) clearInterval(timer);
+    }, 1000);
+
+    await sleep(POST_GAME_WAIT);
+    clearInterval(timer);
 }
 
 async function main() {
@@ -231,7 +271,6 @@ async function main() {
 
   let accounts = [];
   packages.sort();
-
   for (const pkg of packages) {
     process.stdout.write(`Reading ${pkg}... \r`);
     const cookie = getRobloxCookie(pkg);
@@ -282,13 +321,11 @@ async function main() {
 
   autoArrangeXML(accounts.map(a => a.pkg));
 
-  // --- Tahap 3: Proses Launching dengan Wait-for-InGame ---
+  // --- Tahap 3: Proses Launching Awal ---
   console.log("\n🚀 Launching valid instances...");
-  
   for (let i = 0; i < accounts.length; i++) {
     const acc = accounts[i];
     
-    // 1. Force Stop & Launch
     stopPackage(acc.pkg);
     
     let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
@@ -296,48 +333,14 @@ async function main() {
         currentCode = currentCode.split("linkCode=")[1].split("&")[0];
     }
     const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
-
     await launchPackage(acc.pkg, finalLaunchUrl);
     
     lastRestartMap[acc.pkg] = Date.now();
     accountStates[acc.pkg].isRunning = true;
     accountStates[acc.pkg].serverStatus = "Joining...";
     
-    // 2. Loop Waiting for "In Game" (INFINITE WAIT)
-    let inGame = false;
-    const startTime = Date.now();
-    
-    while (!inGame) {
-      // Update dashboard status
-      renderDashboard(
-          AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-          `⏳ ${acc.username} Joining... (${Math.floor((Date.now() - startTime)/1000)}s)`
-      );
-
-      const status = await getSinglePresence(acc.userId, acc.cookie);
-      accountStates[acc.pkg].serverStatus = status;
-
-      if (status === "In Game 🎮") {
-        inGame = true;
-      } else {
-        await sleep(5000); // Check every 5s
-      }
-    }
-
-    // 3. Stabilization Wait (50s) AFTER In Game
-    accountStates[acc.pkg].serverStatus = "In Game 🎮";
-    let remaining = POST_GAME_WAIT / 1000;
-    
-    const timer = setInterval(() => {
-        renderDashboard(
-            AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-            `✅ ${acc.username} In Game! Stabilizing... ${remaining--}s`
-        );
-        if (remaining < 0) clearInterval(timer);
-    }, 1000);
-
-    await sleep(POST_GAME_WAIT);
-    clearInterval(timer);
+    // Panggil fungsi tunggu (STARTUP)
+    await waitForInGame(acc, cleanCode);
   }
 
   // --- Tahap 4: Monitoring Loop ---
@@ -355,7 +358,6 @@ async function main() {
 
       if (CHECK_SERVER_PRESENCE) {
           serverStatus = await getSinglePresence(acc.userId, acc.cookie);
-          
           if (!isRunning) {
               shouldRestart = true;
               reason = "Crash 💀";
@@ -377,11 +379,11 @@ async function main() {
       const timeSinceRestart = (now - lastRestartMap[acc.pkg]) / 1000;
       
       let action = "-";
-
       if (AUTO_RECONNECT && shouldRestart) {
         if (timeSinceRestart < 60) {
           action = `⏳ Cooldown (${Math.floor(60 - timeSinceRestart)}s)`;
         } else {
+          // --- RELAUNCH LOGIC ---
           action = `♻️ Relaunch (${reason})`;
           stopPackage(acc.pkg);
           
@@ -392,6 +394,10 @@ async function main() {
           
           await launchPackage(acc.pkg, `roblox://placeID=${PLACE_ID}&linkCode=${reconnectCode}`);
           lastRestartMap[acc.pkg] = now;
+          
+          // Panggil fungsi tunggu (RELAUNCH)
+          accountStates[acc.pkg].serverStatus = "Joining...";
+          await waitForInGame(acc, cleanCode);
         }
       } else if (!isRunning) {
          action = "⚠️ Dead (No Fix)";
