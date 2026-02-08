@@ -332,7 +332,7 @@ async function main() {
     if(currentCode.includes("linkCode=")) {
         currentCode = currentCode.split("linkCode=")[1].split("&")[0];
     }
-    const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
+    const finalLaunchUrl = `roblox://placeID=${PLACE_ID}}`;
     await launchPackage(acc.pkg, finalLaunchUrl);
     
     lastRestartMap[acc.pkg] = Date.now();
