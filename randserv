@@ -10,7 +10,7 @@ const PLACE_ID = "121864768012064";
 
 // STATUS MONITORING
 const CHECK_SERVER_PRESENCE = true;
-const AUTO_RECONNECT = true;     
+const AUTO_RECONNECT = false;     
 const AUTO_RANDOM_CODE = false; 
 
 // --- GRID SETTINGS (XML) ---
