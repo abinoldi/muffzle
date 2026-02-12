@@ -13,6 +13,9 @@ const CHECK_SERVER_PRESENCE = true;
 const AUTO_RECONNECT = false;     
 const AUTO_RANDOM_CODE = false; 
 
+// --- MEMORY SETTINGS (BARU) ---
+const MEMORY_CLEAR_INTERVAL = 900; // 900 detik = 15 Menit
+
 // --- GRID SETTINGS (XML) ---
 const GRID_COLS = 3;
 const BOX_SIZE = 150;       
@@ -22,12 +25,15 @@ const GAP_Y = 60;
 
 // --- TIMING ---
 const CHECK_INTERVAL = 60;
-const POST_GAME_WAIT = 50000; // 50 Seconds wait AFTER entering game
+const POST_GAME_WAIT = 50000;
+// 50 Seconds wait AFTER entering game
 
 function ensurePackage(pkg) {
-  try { require.resolve(pkg); } catch {
+  try { require.resolve(pkg);
+  } catch {
     try { execSync(`npm install ${pkg}`, { stdio: "inherit" });
-    } catch (e) { process.exit(1); }
+    } catch (e) { process.exit(1);
+    }
   }
 }
 ["axios", "cli-table3"].forEach(ensurePackage);
@@ -50,11 +56,13 @@ function initSystem() {
       execSync(`su -c "${node} ${__filename}"`, { stdio: "inherit" });
       process.exit(0);
     }
-    try { execSync("termux-wake-lock"); } catch {}
+    try { execSync("termux-wake-lock");
+    } catch {}
   } catch (e) { process.exit(1); }
 }
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 const ask = (q) => new Promise(r => {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   rl.question(q, (ans) => { rl.close(); r(ans); });
@@ -88,13 +96,25 @@ async function getUserInfo(cookie) {
       headers: { Cookie: cookie, "User-Agent": "Mozilla/5.0 (Android 10; Mobile)" }
     });
     return { id: res.data.id, name: res.data.name };
-  } catch { return { id: null, name: "Expired" }; }
+  } catch { return { id: null, name: "Expired" };
+  }
 }
 
 function stopPackage(pkg) {
   try { 
     execSync(`am force-stop ${pkg}`, { stdio: 'ignore' });
   } catch (e) {} 
+}
+
+// --- FUNGSI BARU: RELEASE MEMORY ---
+function releaseMemory() {
+  try {
+    // Sync filesystem & drop caches (PageCache, dentries, inodes)
+    execSync('su -c "sync; echo 3 > /proc/sys/vm/drop_caches"', { stdio: 'ignore' });
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 function autoArrangeXML(packages) {
@@ -120,7 +140,8 @@ function autoArrangeXML(packages) {
       chmod 660 ${prefsFile}
     "`;
 
-    try { execSync(cmd, { stdio: 'ignore' }); } catch (e) {}
+    try { execSync(cmd, { stdio: 'ignore' });
+    } catch (e) {}
   });
   console.log("✅ Posisi XML tersimpan.");
 }
@@ -191,20 +212,17 @@ function renderDashboard(cleanCode, statusMessage) {
       : "NO-PING";
   console.log(`📊 STATUS: ${statusMessage} | Mode: ${modeStr} | Code: ${cleanCode}`);
   
-  const termWidth = process.stdout.columns || 80; 
-  
+  const termWidth = process.stdout.columns || 80;
   const wPkg = Math.max(10, Math.floor(termWidth * 0.25)); 
   const wUser = Math.max(10, Math.floor(termWidth * 0.15));
   const wState = Math.max(8, Math.floor(termWidth * 0.12));
   const wStatus = Math.max(12, Math.floor(termWidth * 0.18));
-  const wAction = Math.max(15, termWidth - (wPkg + wUser + wState + wStatus + 10)); 
-
+  const wAction = Math.max(15, termWidth - (wPkg + wUser + wState + wStatus + 10));
   const table = new Table({ 
       head: ['Pkg', 'User', 'State', 'Status', 'Action'], 
       colWidths: [wPkg, wUser, wState, wStatus, wAction],
       wordWrap: true 
   });
-
   Object.keys(accountStates).sort().forEach(pkg => {
     const s = accountStates[pkg];
     table.push([
@@ -231,7 +249,6 @@ async function main() {
 
   let accounts = [];
   packages.sort();
-
   for (const pkg of packages) {
     process.stdout.write(`Reading ${pkg}... \r`);
     const cookie = getRobloxCookie(pkg);
@@ -281,13 +298,10 @@ async function main() {
   }
 
   autoArrangeXML(accounts.map(a => a.pkg));
-
   // --- Tahap 3: Proses Launching dengan Wait-for-InGame ---
   console.log("\n🚀 Launching valid instances...");
-  
   for (let i = 0; i < accounts.length; i++) {
     const acc = accounts[i];
-    
     // 1. Force Stop & Launch
     stopPackage(acc.pkg);
     
@@ -296,31 +310,28 @@ async function main() {
         currentCode = currentCode.split("linkCode=")[1].split("&")[0];
     }
     const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
-
     await launchPackage(acc.pkg, finalLaunchUrl);
     
     lastRestartMap[acc.pkg] = Date.now();
     accountStates[acc.pkg].isRunning = true;
     accountStates[acc.pkg].serverStatus = "Joining...";
-    
     // 2. Loop Waiting for "In Game" (INFINITE WAIT)
     let inGame = false;
     const startTime = Date.now();
-    
     while (!inGame) {
       // Update dashboard status
       renderDashboard(
           AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
           `⏳ ${acc.username} Joining... (${Math.floor((Date.now() - startTime)/1000)}s)`
       );
-
       const status = await getSinglePresence(acc.userId, acc.cookie);
       accountStates[acc.pkg].serverStatus = status;
 
       if (status === "In Game 🎮") {
         inGame = true;
       } else {
-        await sleep(5000); // Check every 5s
+        await sleep(5000);
+        // Check every 5s
       }
     }
 
@@ -335,10 +346,15 @@ async function main() {
         );
         if (remaining < 0) clearInterval(timer);
     }, 1000);
-
     await sleep(POST_GAME_WAIT);
     clearInterval(timer);
   }
+
+  // --- IMMEDIATE MEMORY CLEAR (SETELAH SEMUA STABIL) ---
+  console.log("\n🧹 Performing INITIAL memory release...");
+  releaseMemory();
+  let lastMemoryClear = Date.now(); // Set waktu terakhir clear
+  // ----------------------------------------------------
 
   // --- Tahap 4: Monitoring Loop ---
   console.log(`\n💤 Monitor active...`);
@@ -355,7 +371,6 @@ async function main() {
 
       if (CHECK_SERVER_PRESENCE) {
           serverStatus = await getSinglePresence(acc.userId, acc.cookie);
-          
           if (!isRunning) {
               shouldRestart = true;
               reason = "Crash 💀";
@@ -377,14 +392,12 @@ async function main() {
       const timeSinceRestart = (now - lastRestartMap[acc.pkg]) / 1000;
       
       let action = "-";
-
       if (AUTO_RECONNECT && shouldRestart) {
         if (timeSinceRestart < 60) {
           action = `⏳ Cooldown (${Math.floor(60 - timeSinceRestart)}s)`;
         } else {
           action = `♻️ Relaunch (${reason})`;
           stopPackage(acc.pkg);
-          
           let reconnectCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
           if(reconnectCode.includes("linkCode=")) {
               reconnectCode = reconnectCode.split("linkCode=")[1].split("&")[0];
@@ -401,12 +414,24 @@ async function main() {
         username: acc.username,
         isRunning: isProcessRunning(acc.pkg),
         serverStatus: serverStatus,
-        action: action === "🔎 CHECKING..." ? "-" : action
+        action: action === "🔎 CHECKING..." ?
+        "-" : action
       };
       await sleep(500);
     }
 
     const cycleEndTime = Date.now();
+
+    // --- SCHEDULED MEMORY CLEAR (SETIAP 15 MENIT) ---
+    const timeSinceLastClear = (Date.now() - lastMemoryClear) / 1000;
+    if (timeSinceLastClear > MEMORY_CLEAR_INTERVAL) {
+        renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, "🧹 Releasing RAM & Cache...");
+        releaseMemory();
+        lastMemoryClear = Date.now();
+        await sleep(2000); // Visual delay
+    }
+    // ------------------------------------------------
+
     const remainingTime = CHECK_INTERVAL - ((cycleEndTime - cycleStartTime) / 1000);
     if (remainingTime > 0) {
       Object.keys(accountStates).forEach(pkg => {
