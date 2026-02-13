@@ -17,9 +17,9 @@ const MEMORY_CLEAR_INTERVAL = 900;
 // 900 detik = 15 Menit
 
 // --- GRID SETTINGS (XML) ---
-const GRID_COLS = 3;
-const BOX_SIZE = 150;
-const START_OFFSET_Y = 50;
+const GRID_COLS = 2;
+const BOX_SIZE = 250;
+const START_OFFSET_Y = 80;
 const GAP_X = 5;            
 const GAP_Y = 60;
 
