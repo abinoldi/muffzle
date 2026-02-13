@@ -18,8 +18,8 @@ const MEMORY_CLEAR_INTERVAL = 900;
 
 // --- GRID SETTINGS (XML) ---
 const GRID_COLS = 2;
-const BOX_SIZE = 250;
-const START_OFFSET_Y = 80;
+const BOX_SIZE = 180;
+const START_OFFSET_Y = 50;
 const GAP_X = 5;            
 const GAP_Y = 60;
 
