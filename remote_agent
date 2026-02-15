@@ -1,0 +1,46 @@
+#!/bin/bash
+
+# --- KONFIGURASI ---
+# GANTI DENGAN IP VPS KAMU
+SERVER_URL="http://146.190.119.151:5000/device/heartbeat"
+INTERVAL=5
+
+# --- AUTO DETECT DEVICE NAME ---
+BRAND=$(getprop ro.product.manufacturer)
+MODEL=$(getprop ro.product.model)
+RAW_NAME="${BRAND}_${MODEL}"
+DEVICE_NAME=${RAW_NAME// /_}
+
+if [ -z "$DEVICE_NAME" ] || [ "$DEVICE_NAME" == "_" ]; then
+    DEVICE_NAME="Android_Device_$(date +%s)"
+fi
+
+# --- FIX PATH UNTUK ROOT ---
+# Ini adalah kunci agar ROOT bisa mengenali perintah 'node', 'npm', dll milik Termux
+# Kita juga otomatis pindah ke folder HOME termux agar script js bisa ditemukan
+TERMUX_BIN="/data/data/com.termux/files/usr/bin"
+TERMUX_HOME="/data/data/com.termux/files/home"
+ENV_FIX="export PATH=\$PATH:$TERMUX_BIN; export LD_LIBRARY_PATH=$TERMUX_BIN/../lib; cd $TERMUX_HOME;"
+
+echo "--- Termux Agent Started ---"
+echo "[*] Device: $DEVICE_NAME"
+echo "[*] Target: $SERVER_URL"
+
+while true; do
+    CMD=$(curl -s --max-time 5 "$SERVER_URL?name=$DEVICE_NAME")
+
+    if [ -n "$CMD" ] && [ "$CMD" != "NO_OP" ]; then
+        echo "[!] Perintah diterima: $CMD"
+        
+        # EKSEKUSI DENGAN PATH FIX
+        # Kita menyisipkan ENV_FIX sebelum command asli ($CMD)
+        su -c "$ENV_FIX $CMD"
+        
+    elif [ -z "$CMD" ]; then
+        echo -n "X"
+    else
+        echo -n "."
+    fi
+
+    sleep $INTERVAL
+done
