@@ -56,15 +56,19 @@ function initSystem() {
     const uid = execSync("id -u").toString().trim();
     if (uid !== "0") {
       const node = fs.existsSync(NODE_PATH) ? NODE_PATH : "node";
-      execSync(`su -c "${node} ${__filename}" ${process.argv.slice(2).join(' ')}`, { stdio: "inherit" });
+      
+      // --- BAGIAN YANG DIPERBAIKI ---
+      // Ambil argumen (-server 3) dan gabungkan
+      const args = process.argv.slice(2).join(" ");
+      
+      // Masukkan variable ${args} ke DALAM tanda kutip su -c "..."
+      execSync(`su -c "${node} ${__filename} ${args}"`, { stdio: "inherit" });
+      // -----------------------------
+      
       process.exit(0);
     }
-    try { 
-      execSync("termux-wake-lock");
-    } catch {}
-  } catch (e) { 
-    process.exit(1); 
-  }
+    try { execSync("termux-wake-lock"); } catch {}
+  } catch (e) { process.exit(1); }
 }
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -302,7 +306,7 @@ async function main() {
   let cleanCode = "";
   if (!AUTO_RANDOM_CODE) {
     // --- ARGUMENT PARSING (server) ---
-    const argIndex = process.argv.indexOf("server");
+    const argIndex = process.argv.indexOf("-server");
     let selectedIdx = -1;
 
     if (argIndex !== -1 && process.argv[argIndex + 1]) {
