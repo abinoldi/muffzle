@@ -1,0 +1,630 @@
+#!/data/data/com.termux/files/usr/bin/bash
+
+# ============================================
+# ANDROID REMOTE CONTROLLER FOR TERMUX
+# Version: 2.0 (No SU required)
+# ============================================
+
+# Konfigurasi - UBAH SESUAI SERVER ANDA!
+SERVER_URL="http://146.190.119.151:8000"  # GANTI DENGAN IP SERVER!
+DEVICE_ID=""
+HWID=""
+DEVICE_NAME=""
+SLEEP_INTERVAL=30  # Detik antara pengiriman data
+
+# Warna untuk output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+WHITE='\033[1;37m'
+NC='\033[0m' # No Color
+
+# ============================================
+# FUNGSI UTILITY
+# ============================================
+
+# Fungsi untuk menampilkan banner
+show_banner() {
+    clear
+    echo -e "${CYAN}"
+    echo "╔══════════════════════════════════════╗"
+    echo "║   ANDROID REMOTE CONTROLLER v2.0    ║"
+    echo "║       for Termux (No SU)             ║"
+    echo "╚══════════════════════════════════════╝"
+    echo -e "${NC}"
+}
+
+# Fungsi untuk cek dependencies
+check_dependencies() {
+    echo -e "${BLUE}[•] Checking dependencies...${NC}"
+    
+    local deps=("curl" "termux-api")
+    local missing=()
+    
+    for dep in "${deps[@]}"; do
+        if ! command -v "$dep" &> /dev/null && [ "$dep" != "termux-api" ]; then
+            missing+=("$dep")
+        fi
+    done
+    
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo -e "${YELLOW}[!] Installing missing packages: ${missing[*]}${NC}"
+        pkg update -y > /dev/null 2>&1
+        for pkg in "${missing[@]}"; do
+            pkg install "$pkg" -y > /dev/null 2>&1
+        done
+    fi
+    
+    # Cek termux-api (optional)
+    if ! command -v termux-toast &> /dev/null; then
+        echo -e "${YELLOW}[!] termux-api not installed. Some features disabled.${NC}"
+        echo -e "${YELLOW}    Install: pkg install termux-api${NC}"
+    else
+        echo -e "${GREEN}[✓] termux-api installed${NC}"
+    fi
+    
+    echo -e "${GREEN}[✓] Dependencies OK${NC}"
+}
+
+# ============================================
+# FUNGSI INFORMASI DEVICE
+# ============================================
+
+# Fungsi untuk generate HWID unik
+get_hwid() {
+    local hwid=""
+    
+    # Metode 1: Dari file termux.properties
+    if [ -f /data/data/com.termux/files/home/.termux/termux.properties ]; then
+        hwid=$(md5sum /data/data/com.termux/files/home/.termux/termux.properties 2>/dev/null | cut -d' ' -f1)
+    fi
+    
+    # Metode 2: Dari Android ID
+    if [ -z "$hwid" ] && [ -f /data/data/com.termux/files/home/.android_id ]; then
+        hwid=$(cat /data/data/com.termux/files/home/.android_id 2>/dev/null)
+    fi
+    
+    # Metode 3: Dari /proc/cpuinfo
+    if [ -z "$hwid" ] && [ -f /proc/cpuinfo ]; then
+        hwid=$(grep "Serial" /proc/cpuinfo 2>/dev/null | cut -d':' -f2 | tr -d ' ')
+    fi
+    
+    # Metode 4: Generate dari kombinasi unik
+    if [ -z "$hwid" ]; then
+        local timestamp=$(date +%s)
+        local random=$(cat /dev/urandom 2>/dev/null | tr -dc 'a-f0-9' | fold -w 8 | head -n 1)
+        local host=$(uname -n 2>/dev/null | md5sum | cut -c1-8)
+        hwid="ANDROID_${timestamp}_${random}_${host}"
+    fi
+    
+    # Ambil 16 karakter pertama
+    echo "$hwid" | tr -d '\n' | md5sum | cut -c1-16
+}
+
+# Fungsi untuk dapatkan nama device
+get_device_name() {
+    local model=""
+    local manufacturer=""
+    local brand=""
+    
+    # Coba dapatkan dari getprop
+    if command -v getprop &> /dev/null; then
+        model=$(getprop ro.product.model 2>/dev/null)
+        manufacturer=$(getprop ro.product.manufacturer 2>/dev/null)
+        brand=$(getprop ro.product.brand 2>/dev/null)
+    fi
+    
+    # Format nama
+    if [ -n "$manufacturer" ] && [ -n "$model" ]; then
+        echo "${manufacturer}_${model}"
+    elif [ -n "$brand" ] && [ -n "$model" ]; then
+        echo "${brand}_${model}"
+    elif [ -n "$model" ]; then
+        echo "$model"
+    else
+        echo "Android_$(uname -n 2>/dev/null | cut -c1-8)"
+    fi
+}
+
+# Fungsi untuk dapatkan versi Android
+get_android_version() {
+    local version=""
+    local sdk=""
+    
+    if command -v getprop &> /dev/null; then
+        version=$(getprop ro.build.version.release 2>/dev/null)
+        sdk=$(getprop ro.build.version.sdk 2>/dev/null)
+    fi
+    
+    if [ -n "$version" ] && [ -n "$sdk" ]; then
+        echo "Android $version (SDK $sdk)"
+    elif [ -n "$version" ]; then
+        echo "Android $version"
+    else
+        echo "Unknown"
+    fi
+}
+
+# Fungsi untuk dapatkan IP address
+get_ip_address() {
+    local ip=""
+    
+    # Metode 1: Dari ip route
+    if command -v ip &> /dev/null; then
+        local interface=$(ip route 2>/dev/null | grep default | awk '{print $5}' | head -1)
+        if [ -n "$interface" ]; then
+            ip=$(ip addr show "$interface" 2>/dev/null | grep inet | grep -v inet6 | awk '{print $2}' | cut -d/ -f1 | head -1)
+        fi
+    fi
+    
+    # Metode 2: Dari hostname
+    if [ -z "$ip" ] && command -v hostname &> /dev/null; then
+        ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+    
+    # Metode 3: Dari ifconfig
+    if [ -z "$ip" ] && command -v ifconfig &> /dev/null; then
+        ip=$(ifconfig 2>/dev/null | grep inet | grep -v 127.0.0.1 | grep -v inet6 | awk '{print $2}' | head -1)
+    fi
+    
+    echo "${ip:-0.0.0.0}"
+}
+
+# ============================================
+# FUNGSI MONITORING RESOURCE
+# ============================================
+
+# Fungsi untuk dapatkan CPU usage
+get_cpu_usage() {
+    if [ ! -f /proc/stat ]; then
+        echo "0"
+        return
+    fi
+    
+    local cpu line user nice system idle iowait irq softirq steal total idle_all usage
+    
+    read -r cpu user nice system idle iowait irq softirq steal < /proc/stat 2>/dev/null
+    
+    # Hitung total dan idle
+    total=$((user + nice + system + idle + iowait + irq + softirq + steal))
+    idle_all=$((idle + iowait))
+    
+    # File untuk menyimpan nilai sebelumnya
+    local prev_total_file="/data/data/com.termux/files/home/.cache/cpu_total"
+    local prev_idle_file="/data/data/com.termux/files/home/.cache/cpu_idle"
+    
+    # Buat directory cache jika belum ada
+    mkdir -p /data/data/com.termux/files/home/.cache 2>/dev/null
+    
+    if [ -f "$prev_total_file" ] && [ -f "$prev_idle_file" ]; then
+        local prev_total=$(cat "$prev_total_file" 2>/dev/null)
+        local prev_idle=$(cat "$prev_idle_file" 2>/dev/null)
+        
+        if [ -n "$prev_total" ] && [ -n "$prev_idle" ] && [ $total -gt $prev_total ]; then
+            usage=$((100 * (total - prev_total - (idle_all - prev_idle)) / (total - prev_total)))
+            echo "$usage"
+        else
+            echo "0"
+        fi
+    else
+        echo "0"
+    fi
+    
+    # Simpan untuk next reading
+    echo "$total" > "$prev_total_file" 2>/dev/null
+    echo "$idle_all" > "$prev_idle_file" 2>/dev/null
+}
+
+# Fungsi untuk dapatkan memory info
+get_memory_info() {
+    if [ ! -f /proc/meminfo ]; then
+        echo "{\"total\":0,\"used\":0,\"free\":0,\"percent\":0}"
+        return
+    fi
+    
+    local total used free percent available
+    
+    total=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}')
+    available=$(grep MemAvailable /proc/meminfo 2>/dev/null | awk '{print $2}')
+    
+    if [ -n "$total" ] && [ -n "$available" ] && [ $total -gt 0 ]; then
+        used=$((total - available))
+        percent=$((used * 100 / total))
+        echo "{\"total\":$((total * 1024)),\"used\":$((used * 1024)),\"free\":$((available * 1024)),\"percent\":$percent}"
+    else
+        echo "{\"total\":0,\"used\":0,\"free\":0,\"percent\":0}"
+    fi
+}
+
+# Fungsi untuk dapatkan storage info
+get_storage_info() {
+    if ! command -v df &> /dev/null; then
+        echo "{\"total\":0,\"used\":0,\"free\":0,\"percent\":0}"
+        return
+    fi
+    
+    # Coba deteksi storage internal Android
+    local paths="/storage/emulated/0 /sdcard /data /"
+    local total=0 used=0 free=0 percent=0
+    
+    for path in $paths; do
+        if [ -d "$path" ]; then
+            local df_output=$(df -k "$path" 2>/dev/null | tail -1)
+            if [ -n "$df_output" ]; then
+                total=$(echo "$df_output" | awk '{print $2}')
+                used=$(echo "$df_output" | awk '{print $3}')
+                free=$(echo "$df_output" | awk '{print $4}')
+                percent=$(echo "$df_output" | awk '{print $5}' | sed 's/%//')
+                
+                # Validasi angka
+                if [ "$total" -gt 0 ] 2>/dev/null; then
+                    break
+                fi
+            fi
+        fi
+    done
+    
+    if [ -n "$total" ] && [ "$total" -gt 0 ] 2>/dev/null; then
+        echo "{\"total\":$((total * 1024)),\"used\":$((used * 1024)),\"free\":$((free * 1024)),\"percent\":$percent}"
+    else
+        echo "{\"total\":0,\"used\":0,\"free\":0,\"percent\":0}"
+    fi
+}
+
+# Fungsi untuk dapatkan battery info
+get_battery_info() {
+    local percent=0
+    local plugged="false"
+    local temperature=""
+    local health=""
+    
+    # Metode 1: Dari file sysfs
+    local battery_paths="/sys/class/power_supply/battery /sys/class/power_supply/BAT0"
+    
+    for path in $battery_paths; do
+        if [ -f "$path/capacity" ]; then
+            percent=$(cat "$path/capacity" 2>/dev/null)
+            
+            if [ -f "$path/status" ]; then
+                local status=$(cat "$path/status" 2>/dev/null)
+                if [ "$status" = "Charging" ] || [ "$status" = "Full" ]; then
+                    plugged="true"
+                fi
+            fi
+            
+            if [ -f "$path/temp" ]; then
+                temperature=$(cat "$path/temp" 2>/dev/null)
+            fi
+            
+            if [ -f "$path/health" ]; then
+                health=$(cat "$path/health" 2>/dev/null)
+            fi
+            
+            break
+        fi
+    done
+    
+    # Metode 2: Dari termux-battery-status (lebih akurat)
+    if [ "$percent" -eq 0 ] && command -v termux-battery-status &> /dev/null; then
+        local battery_json=$(termux-battery-status 2>/dev/null)
+        if [ -n "$battery_json" ]; then
+            percent=$(echo "$battery_json" | grep -o '"percentage":[0-9]*' | cut -d':' -f2)
+            local plugged_status=$(echo "$battery_json" | grep -o '"plugged":"[^"]*"' | cut -d'"' -f4)
+            
+            if [ "$plugged_status" = "PLUGGED" ] || [ "$plugged_status" = "UNPLUGGED" ]; then
+                [ "$plugged_status" = "PLUGGED" ] && plugged="true" || plugged="false"
+            fi
+            
+            temperature=$(echo "$battery_json" | grep -o '"temperature":[0-9.]*' | cut -d':' -f2)
+            health=$(echo "$battery_json" | grep -o '"health":"[^"]*"' | cut -d'"' -f4)
+        fi
+    fi
+    
+    # Build JSON
+    echo "{\"percent\":${percent:-0},\"power_plugged\":$plugged,\"temperature\":\"${temperature:-unknown}\",\"health\":\"${health:-unknown}\"}"
+}
+
+# Fungsi untuk dapatkan network info
+get_network_info() {
+    local bytes_sent=0
+    local bytes_recv=0
+    
+    if [ -f /proc/net/dev ]; then
+        # Baca statistik network
+        while read -r line; do
+            if [[ $line =~ wlan0|eth0|rmnet ]]; then
+                bytes_recv=$(echo "$line" | awk '{print $2}')
+                bytes_sent=$(echo "$line" | awk '{print $10}')
+                break
+            fi
+        done < /proc/net/dev
+    fi
+    
+    echo "{\"bytes_sent\":$bytes_sent,\"bytes_recv\":$bytes_recv}"
+}
+
+# ============================================
+# FUNGSI KOMUNIKASI SERVER
+# ============================================
+
+# Fungsi untuk kirim metrics ke server
+send_metrics() {
+    local timestamp=$(date -Iseconds 2>/dev/null || date +"%Y-%m-%dT%H:%M:%S%z")
+    local cpu_usage=$(get_cpu_usage)
+    local memory_info=$(get_memory_info)
+    local storage_info=$(get_storage_info)
+    local battery_info=$(get_battery_info)
+    local network_info=$(get_network_info)
+    local ip_address=$(get_ip_address)
+    local android_version=$(get_android_version)
+    
+    # Build JSON data
+    local json_data=$(cat <<EOF
+{
+    "device_id": "$DEVICE_ID",
+    "hwid": "$HWID",
+    "device_name": "$DEVICE_NAME",
+    "android_version": "$android_version",
+    "timestamp": "$timestamp",
+    "ip_address": "$ip_address",
+    "cpu": {"usage_percent": $cpu_usage},
+    "memory": $memory_info,
+    "storage": $storage_info,
+    "battery": $battery_info,
+    "network": $network_info
+}
+EOF
+)
+    
+    # Kirim ke server
+    if command -v curl &> /dev/null; then
+        local response=$(curl -s --max-time 10 -X POST "$SERVER_URL/api/metrics" \
+            -H "Content-Type: application/json" \
+            -d "$json_data" 2>&1)
+        
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}[$(date +%H:%M:%S)]${NC} ✓ Metrics sent - CPU: ${YELLOW}${cpu_usage}%${NC} | RAM: $(echo $memory_info | grep -o '"percent":[0-9]*' | cut -d':' -f2)% | Batt: $(echo $battery_info | grep -o '"percent":[0-9]*' | cut -d':' -f2)%"
+            return 0
+        else
+            echo -e "${RED}[$(date +%H:%M:%S)]${NC} ✗ Failed to send metrics - Server unreachable"
+            return 1
+        fi
+    fi
+}
+
+# Fungsi untuk cek command dari server
+check_commands() {
+    if ! command -v curl &> /dev/null; then
+        return
+    fi
+    
+    local response=$(curl -s --max-time 5 "$SERVER_URL/api/device/$DEVICE_ID/commands" 2>/dev/null)
+    
+    if [ -n "$response" ] && [ "$response" != "null" ]; then
+        local command=$(echo "$response" | cut -d':' -f1)
+        local params=$(echo "$response" | cut -d':' -f2-)
+        
+        echo -e "${PURPLE}[$(date +%H:%M:%S)]${NC} 📨 Command received: ${CYAN}$command${NC}"
+        
+        case "$command" in
+            "toast")
+                if command -v termux-toast &> /dev/null; then
+                    termux-toast -b "$params" > /dev/null 2>&1
+                    echo -e "${GREEN}    ✓ Toast displayed: $params${NC}"
+                fi
+                ;;
+                
+            "vibrate")
+                if command -v termux-vibrate &> /dev/null; then
+                    local duration=${params:-1000}
+                    termux-vibrate -d "$duration" > /dev/null 2>&1
+                    echo -e "${GREEN}    ✓ Vibrated for ${duration}ms${NC}"
+                fi
+                ;;
+                
+            "shell")
+                echo -e "${YELLOW}    Executing: $params${NC}"
+                local result=$(eval "$params" 2>&1)
+                echo "$result" | while IFS= read -r line; do
+                    echo -e "${WHITE}      $line${NC}"
+                done
+                
+                # Kirim hasil balik
+                curl -s --max-time 5 -X POST "$SERVER_URL/api/device/$DEVICE_ID/command_result" \
+                    -H "Content-Type: text/plain" \
+                    -d "$result" > /dev/null 2>&1
+                echo -e "${GREEN}    ✓ Result sent${NC}"
+                ;;
+                
+            "screenshot")
+                if command -v termux-screenshot &> /dev/null; then
+                    termux-screenshot > /dev/null 2>&1
+                    echo -e "${GREEN}    ✓ Screenshot taken${NC}"
+                fi
+                ;;
+                
+            "notification")
+                if command -v termux-notification &> /dev/null; then
+                    local title=$(echo "$params" | cut -d',' -f1)
+                    local message=$(echo "$params" | cut -d',' -f2-)
+                    termux-notification --title "$title" --content "$message" > /dev/null 2>&1
+                    echo -e "${GREEN}    ✓ Notification sent${NC}"
+                fi
+                ;;
+                
+            "torch")
+                if command -v termux-torch &> /dev/null; then
+                    if [ "$params" = "on" ] || [ "$params" = "off" ]; then
+                        termux-torch "$params" > /dev/null 2>&1
+                        echo -e "${GREEN}    ✓ Torch turned $params${NC}"
+                    else
+                        # Toggle
+                        termux-torch on > /dev/null 2>&1
+                        sleep 1
+                        termux-torch off > /dev/null 2>&1
+                        echo -e "${GREEN}    ✓ Torch toggled${NC}"
+                    fi
+                fi
+                ;;
+                
+            "wifi")
+                if command -v termux-wifi-enable &> /dev/null; then
+                    if [ "$params" = "on" ]; then
+                        termux-wifi-enable true > /dev/null 2>&1
+                        echo -e "${GREEN}    ✓ WiFi enabled${NC}"
+                    elif [ "$params" = "off" ]; then
+                        termux-wifi-enable false > /dev/null 2>&1
+                        echo -e "${GREEN}    ✓ WiFi disabled${NC}"
+                    else
+                        # Toggle
+                        termux-wifi-enable false > /dev/null 2>&1
+                        sleep 2
+                        termux-wifi-enable true > /dev/null 2>&1
+                        echo -e "${GREEN}    ✓ WiFi toggled${NC}"
+                    fi
+                fi
+                ;;
+                
+            "reboot"|"reboot_now")
+                echo -e "${RED}    ⚠️  REBOOT COMMAND RECEIVED!${NC}"
+                local delay=5
+                if [ "$command" = "reboot" ] && [ -n "$params" ]; then
+                    delay=$params
+                fi
+                
+                for ((i=delay; i>0; i--)); do
+                    echo -e "${YELLOW}    Rebooting in $i seconds...${NC}"
+                    if command -v termux-toast &> /dev/null; then
+                        termux-toast "Rebooting in $i seconds..." > /dev/null 2>&1
+                    fi
+                    sleep 1
+                done
+                
+                echo -e "${RED}    💥 REBOOTING NOW!${NC}"
+                if command -v termux-toast &> /dev/null; then
+                    termux-toast "Rebooting NOW!" > /dev/null 2>&1
+                fi
+                
+                # Cleanup sebelum reboot
+                curl -s --max-time 3 -X POST "$SERVER_URL/api/device/$DEVICE_ID/offline" > /dev/null 2>&1
+                sleep 2
+                
+                # Exit script (Termux akan restart otomatis)
+                exit 0
+                ;;
+                
+            "list_files")
+                local path="${params:-/sdcard}"
+                if [ -d "$path" ]; then
+                    local files=$(ls -la "$path" 2>&1 | head -20)
+                    curl -s --max-time 5 -X POST "$SERVER_URL/api/device/$DEVICE_ID/command_result" \
+                        -H "Content-Type: text/plain" \
+                        -d "$files" > /dev/null 2>&1
+                fi
+                ;;
+                
+            "ping")
+                curl -s --max-time 5 -X POST "$SERVER_URL/api/device/$DEVICE_ID/command_result" \
+                    -H "Content-Type: text/plain" \
+                    -d "pong" > /dev/null 2>&1
+                echo -e "${GREEN}    ✓ Pong${NC}"
+                ;;
+                
+            *)
+                echo -e "${RED}    ✗ Unknown command: $command${NC}"
+                ;;
+        esac
+    fi
+}
+
+# Fungsi untuk register ke server
+register_device() {
+    echo -e "${BLUE}[•] Registering device to server...${NC}"
+    
+    local android_version=$(get_android_version)
+    local ip_address=$(get_ip_address)
+    
+    local json_data=$(cat <<EOF
+{
+    "hwid": "$HWID",
+    "device_name": "$DEVICE_NAME",
+    "device_id": "$DEVICE_ID",
+    "android_version": "$android_version",
+    "ip_address": "$ip_address"
+}
+EOF
+)
+    
+    if command -v curl &> /dev/null; then
+        local response=$(curl -s --max-time 5 -X POST "$SERVER_URL/register_device" \
+            -H "Content-Type: application/json" \
+            -d "$json_data" 2>&1)
+        
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}[✓] Registered successfully${NC}"
+        else
+            echo -e "${YELLOW}[!] Registration failed - server may be offline${NC}"
+        fi
+    fi
+}
+
+# Fungsi cleanup
+cleanup() {
+    echo -e "\n${YELLOW}[!] Stopping remote controller...${NC}"
+    
+    # Kirim status offline
+    if command -v curl &> /dev/null; then
+        curl -s --max-time 3 -X POST "$SERVER_URL/api/device/$DEVICE_ID/offline" > /dev/null 2>&1
+    fi
+    
+    echo -e "${GREEN}[✓] Goodbye!${NC}"
+    exit 0
+}
+
+# ============================================
+# MAIN PROGRAM
+# ============================================
+
+# Trap Ctrl+C
+trap cleanup SIGINT SIGTERM
+
+# Tampilkan banner
+show_banner
+
+# Cek dependencies
+check_dependencies
+
+# Generate device info
+HWID=$(get_hwid)
+DEVICE_NAME=$(get_device_name)
+DEVICE_ID="${DEVICE_NAME}_${HWID}"
+
+# Tampilkan info device
+echo -e "${GREEN}══════════════════════════════════════${NC}"
+echo -e "${WHITE}Device Info:${NC}"
+echo -e "  ${CYAN}HWID:${NC}      $HWID"
+echo -e "  ${CYAN}Name:${NC}      $DEVICE_NAME"
+echo -e "  ${CYAN}ID:${NC}        $DEVICE_ID"
+echo -e "  ${CYAN}Android:${NC}   $(get_android_version)"
+echo -e "  ${CYAN}IP:${NC}        $(get_ip_address)"
+echo -e "${GREEN}══════════════════════════════════════${NC}"
+echo -e "${WHITE}Server:${NC}      $SERVER_URL"
+echo -e "${WHITE}Interval:${NC}    ${SLEEP_INTERVAL}s"
+echo -e "${GREEN}══════════════════════════════════════${NC}"
+
+# Register ke server
+register_device
+
+echo -e "${YELLOW}[•] Starting monitoring...${NC}"
+echo -e "${PURPLE}Press Ctrl+C to stop${NC}"
+echo -e "${GREEN}══════════════════════════════════════${NC}"
+
+# Main loop
+while true; do
+    send_metrics
+    check_commands
+    sleep $SLEEP_INTERVAL
+done
