@@ -301,8 +301,8 @@ async function main() {
 
   let cleanCode = "";
   if (!AUTO_RANDOM_CODE) {
-    // --- ARGUMENT PARSING (-server) ---
-    const argIndex = process.argv.indexOf("-server");
+    // --- ARGUMENT PARSING (server) ---
+    const argIndex = process.argv.indexOf("server");
     let selectedIdx = -1;
 
     if (argIndex !== -1 && process.argv[argIndex + 1]) {
