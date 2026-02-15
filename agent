@@ -1,0 +1,37 @@
+#!/data/data/com.termux/files/usr/bin/bash
+
+echo "--- ⚙️ Mengonfigurasi Auto-Start Agent ---"
+
+# 1. Bersihkan script boot lama agar tidak bentrok
+rm -f ~/.termux/boot/start_node.sh
+rm -f ~/.termux/boot/start_agent.sh
+
+# 2. Pastikan folder boot ada
+mkdir -p ~/.termux/boot/
+
+# 3. Membuat file pemicu boot
+# Kita menggunakan absolute path agar aman
+cat << 'EOF' > ~/.termux/boot/start_agent.sh
+#!/data/data/com.termux/files/usr/bin/sh
+
+# Mencegah CPU tidur (PENTING)
+termux-wake-lock
+
+# Tunggu 20 detik agar sistem & internet siap
+sleep 20
+
+# Pindah ke direktori home dulu (agar agent bisa baca file config di sebelahnya jika ada)
+cd /data/data/com.termux/files/home/
+
+# Jalankan agent menggunakan BASH dan simpan log
+bash agent > /sdcard/randserv_boot.log 2>&1 &
+EOF
+
+# 4. Memberikan izin eksekusi (Permission)
+chmod +x ~/.termux/boot/start_agent.sh
+# Pastikan file agent-nya juga bisa dieksekusi
+chmod +x /data/data/com.termux/files/home/agent
+
+echo "--- ✅ Setup Selesai! ---"
+echo "File 'agent' akan dijalankan dengan perintah 'bash agent' setiap reboot."
+echo "Log akan disimpan di: /sdcard/randserv_boot.log"
