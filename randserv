@@ -9,13 +9,13 @@ const os = require("os");
 const MSRV_URL = "https://ghostbin.axel.org/paste/nk4fh/raw";
 const PLACE_ID = "121864768012064";
 
-// STATUS MONITORING
-const CHECK_SERVER_PRESENCE = true;
+// STATUS MONITORING (DIMATIKAN UNTUK SEKALI JALAN)
+const CHECK_SERVER_PRESENCE = false; 
 const AUTO_RECONNECT = false;     
 const AUTO_RANDOM_CODE = false; 
 
 // --- MEMORY SETTINGS ---
-const MEMORY_CLEAR_INTERVAL = 900; // 900 detik = 15 Menit
+const MEMORY_CLEAR_INTERVAL = 900; // Tidak terlalu berpengaruh karena script langsung exit
 
 // --- GRID SETTINGS (XML) ---
 const GRID_COLS = 3;
@@ -26,7 +26,7 @@ const GAP_Y = 60;
 
 // --- TIMING ---
 const CHECK_INTERVAL = 60;
-const POST_GAME_WAIT = 50000; // 50 Seconds wait AFTER entering game
+const POST_GAME_WAIT = 15000; // Dikurangi jadi 15 detik agar tidak menunggu terlalu lama (opsional)
 
 function ensurePackage(pkg) {
   try { 
@@ -56,19 +56,13 @@ function initSystem() {
     const uid = execSync("id -u").toString().trim();
     if (uid !== "0") {
       const node = fs.existsSync(NODE_PATH) ? NODE_PATH : "node";
-      
-      // --- BAGIAN YANG DIPERBAIKI ---
-      // Ambil argumen (-server 3) dan gabungkan
       const args = process.argv.slice(2).join(" ");
-      
-      // Masukkan variable ${args} ke DALAM tanda kutip su -c "..."
       execSync(`su -c "${node} ${__filename} ${args}"`, { stdio: "inherit" });
-      // -----------------------------
-      
       process.exit(0);
     }
     try { execSync("termux-wake-lock"); } catch {}
-  } catch (e) { process.exit(1); }
+  } catch (e) { process.exit(1);
+  }
 }
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -167,13 +161,6 @@ async function launchPackage(pkg, url) {
   }
 }
 
-function isProcessRunning(pkg) {
-  try { 
-    execSync(`pidof ${pkg}`, { stdio: 'ignore' });
-    return true;
-  } catch { return false; }
-}
-
 async function getSinglePresence(userId, cookie) {
   if (!userId || !cookie) return "Unknown ❓";
   try {
@@ -218,12 +205,9 @@ function renderDashboard(cleanCode, statusMessage) {
   console.log(`📱 SYSTEM: CPU ${stats.cpu} | RAM ${stats.ram} | UP ${stats.uptime}`);
   console.log(`📏 MODE: XML GRID (${GRID_COLS} cols) | GAP Y: ${GAP_Y}px`);
   
-  const modeStr = CHECK_SERVER_PRESENCE
-      ? (AUTO_RECONNECT ? "FULL (AUTO-FIX)" : "MONITOR ONLY")
-      : "NO-PING";
-  console.log(`📊 STATUS: ${statusMessage} | Mode: ${modeStr} | Code: ${cleanCode}`);
+  // Karena mode sekali jalan, status monitoring di hardcode
+  console.log(`📊 STATUS: ${statusMessage} | Mode: ONE-SHOT (No Loop) | Code: ${cleanCode}`);
   
-  // -- AUTO FIT LOGIC --
   const termWidth = process.stdout.columns || 80;
   const safeWidth = Math.max(40, termWidth - 8); 
 
@@ -244,7 +228,7 @@ function renderDashboard(cleanCode, statusMessage) {
     table.push([
       pkg.replace("com.roblox.client", "...client"), 
       s.username.substring(0, 12),
-      s.isRunning ? "Run 🟢" : "Dead 🔴",
+      s.isRunning ? "Run 🟢" : "Wait ⚪",
       s.serverStatus,
       s.action
     ]);
@@ -255,7 +239,7 @@ function renderDashboard(cleanCode, statusMessage) {
 async function main() {
   initSystem();
   console.clear();
-  console.log("🚀 Initializing Manager...");
+  console.log("🚀 Initializing Manager (One-Shot Mode)...");
 
   const packages = getPackages();
   if (!packages.length) { 
@@ -305,7 +289,6 @@ async function main() {
 
   let cleanCode = "";
   if (!AUTO_RANDOM_CODE) {
-    // --- ARGUMENT PARSING (server) ---
     const argIndex = process.argv.indexOf("-server");
     let selectedIdx = -1;
 
@@ -350,14 +333,16 @@ async function main() {
     accountStates[acc.pkg].isRunning = true;
     accountStates[acc.pkg].serverStatus = "Joining...";
     
-    // --- WAIT FOR IN-GAME ---
+    // --- WAIT FOR IN-GAME (Tetap dipertahankan agar tidak crash karena launch terlalu cepat) ---
     let inGame = false;
     const startTime = Date.now();
-    while (!inGame) {
+    // Timeout 60 detik agar tidak stuck selamanya jika error
+    while (!inGame && (Date.now() - startTime) < 60000) {
       renderDashboard(
           AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
           `⏳ ${acc.username} Joining... (${Math.floor((Date.now() - startTime)/1000)}s)`
       );
+      
       const status = await getSinglePresence(acc.userId, acc.cookie);
       accountStates[acc.pkg].serverStatus = status;
 
@@ -372,104 +357,25 @@ async function main() {
     accountStates[acc.pkg].serverStatus = "In Game 🎮";
     let remaining = POST_GAME_WAIT / 1000;
     
+    // Hanya tunggu sebentar untuk memberi jeda antar akun
     const timer = setInterval(() => {
         renderDashboard(
             AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-            `✅ ${acc.username} In Game! Stabilizing... ${remaining--}s`
+            `✅ ${acc.username} In Game! Cooling down... ${remaining--}s`
         );
         if (remaining < 0) clearInterval(timer);
     }, 1000);
+    
     await sleep(POST_GAME_WAIT);
     clearInterval(timer);
   }
 
-  console.log("\n🧹 Performing INITIAL memory release...");
+  console.log("\n🧹 Performing Final Memory Release...");
   releaseMemory();
-  let lastMemoryClear = Date.now();
-
-  // --- MONITORING LOOP ---
-  console.log(`\n💤 Monitor active...`);
-  while (true) {
-    const cycleStartTime = Date.now();
-    for (const acc of accounts) {
-      accountStates[acc.pkg].action = "🔎 CHECKING...";
-      renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `Checking ${acc.username}...`);
-      
-      const isRunning = isProcessRunning(acc.pkg);
-      let serverStatus = "Disabled ⚪";
-      let shouldRestart = false;
-      let reason = "";
-
-      if (CHECK_SERVER_PRESENCE) {
-          serverStatus = await getSinglePresence(acc.userId, acc.cookie);
-          if (!isRunning) {
-              shouldRestart = true;
-              reason = "Crash 💀";
-          } 
-          else if (serverStatus === "Offline ⚫") {
-              shouldRestart = true;
-              reason = "Offline 🔌";
-          }
-          else if (serverStatus === "Online 🟡") {
-              shouldRestart = true;
-              reason = "Stuck Menu 🟡";
-          }
-      } else if (!isRunning) {
-          shouldRestart = true;
-          reason = "Crash 💀";
-      }
-
-      const now = Date.now();
-      const timeSinceRestart = (now - lastRestartMap[acc.pkg]) / 1000;
-      
-      let action = "-";
-      if (AUTO_RECONNECT && shouldRestart) {
-        if (timeSinceRestart < 60) {
-          action = `⏳ Cooldown (${Math.floor(60 - timeSinceRestart)}s)`;
-        } else {
-          action = `♻️ Relaunch (${reason})`;
-          stopPackage(acc.pkg);
-          let reconnectCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
-          if(reconnectCode.includes("linkCode=")) {
-              reconnectCode = reconnectCode.split("linkCode=")[1].split("&")[0];
-          }
-          
-          await launchPackage(acc.pkg, `roblox://placeID=${PLACE_ID}&linkCode=${reconnectCode}`);
-          lastRestartMap[acc.pkg] = now;
-        }
-      } else if (!isRunning) {
-         action = "⚠️ Dead (No Fix)";
-      }
-      
-      accountStates[acc.pkg] = {
-        username: acc.username,
-        isRunning: isProcessRunning(acc.pkg),
-        serverStatus: serverStatus,
-        action: action === "🔎 CHECKING..." ? "-" : action
-      };
-      await sleep(500);
-    }
-
-    const cycleEndTime = Date.now();
-    
-    // --- SCHEDULED MEMORY CLEAR ---
-    const timeSinceLastClear = (Date.now() - lastMemoryClear) / 1000;
-    if (timeSinceLastClear > MEMORY_CLEAR_INTERVAL) {
-        renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, "🧹 Releasing RAM & Cache...");
-        releaseMemory();
-        lastMemoryClear = Date.now();
-        await sleep(2000); 
-    }
-
-    const remainingTime = CHECK_INTERVAL - ((cycleEndTime - cycleStartTime) / 1000);
-    if (remainingTime > 0) {
-      Object.keys(accountStates).forEach(pkg => {
-          if(accountStates[pkg].action === "🔎 CHECKING...") accountStates[pkg].action = "-";
-      });
-      renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `Sleeping (${Math.floor(remainingTime)}s)`);
-      await sleep(remainingTime * 1000);
-    }
-  }
+  
+  console.log("\n✅ [DONE] Semua akun telah diluncurkan.");
+  console.log("👋 Script exiting (One-Shot Mode).");
+  process.exit(0);
 }
 
 main();
