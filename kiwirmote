@@ -2,17 +2,14 @@
 
 # ============================================
 # ANDROID REMOTE CONTROLLER FOR TERMUX
-# Version: 3.2 (Stable Fix)
+# Version: 4.0 (Ultimate Fix)
 # ============================================
 
-# Konfigurasi - UBAH SESUAI SERVER ANDA!
+# Konfigurasi
 SERVER_URL="http://146.190.119.151:8000"  # GANTI DENGAN IP SERVER!
-DEVICE_ID=""
-HWID=""
-DEVICE_NAME=""
 SLEEP_INTERVAL=30
 
-# Warna untuk output
+# Warna
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -24,21 +21,28 @@ NC='\033[0m'
 BOLD='\033[1m'
 
 # ============================================
-# CEK SU AVAILABILITY
+# VARIABEL GLOBAL
 # ============================================
 
+DEVICE_ID=""
+HWID=""
+DEVICE_NAME=""
 HAS_SU=false
+
+# ============================================
+# FUNGSI CEK SU
+# ============================================
 
 check_su() {
     if command -v su &> /dev/null; then
-        if su -c "echo test" &> /dev/null; then
+        if su -c "id" &> /dev/null; then
             HAS_SU=true
             echo -e "${GREEN}[✓] Root access available${NC}"
         else
             echo -e "${YELLOW}[!] Root access not available${NC}"
         fi
     else
-        echo -e "${YELLOW}[!] su command not found${NC}"
+        echo -e "${YELLOW}[!] su not found${NC}"
     fi
 }
 
@@ -50,13 +54,13 @@ show_banner() {
     clear
     echo -e "${CYAN}${BOLD}"
     echo "╔══════════════════════════════════════╗"
-    echo "║   ANDROID REMOTE CONTROLLER v3.2     ║"
-    echo "║          ${WHITE}Stable Version${CYAN}              ║"
+    echo "║   ANDROID REMOTE CONTROLLER v4.0    ║"
+    echo "║         ${WHITE}Ultimate Fix${CYAN}                ║"
     echo "╚══════════════════════════════════════╝"
     echo -e "${NC}"
 }
 
-check_dependencies() {
+check_deps() {
     echo -e "${BLUE}[•] Checking dependencies...${NC}"
     
     if ! command -v curl &> /dev/null; then
@@ -66,12 +70,10 @@ check_dependencies() {
     
     if ! command -v termux-toast &> /dev/null; then
         echo -e "${YELLOW}[!] termux-api not installed${NC}"
-    else
-        echo -e "${GREEN}[✓] termux-api installed${NC}"
     fi
     
     check_su
-    echo -e "${GREEN}[✓] Dependencies OK${NC}"
+    echo -e "${GREEN}[✓] Ready${NC}"
 }
 
 # ============================================
@@ -81,12 +83,13 @@ check_dependencies() {
 get_hwid() {
     local hwid=""
     
-    if [ "$HAS_SU" = true ]; then
-        hwid=$(su -c "getprop ro.serialno" 2>/dev/null | tr -d '\n\r')
+    # Coba dari berbagai sumber
+    if [ -f /data/data/com.termux/files/home/.termux/termux.properties ]; then
+        hwid=$(md5sum /data/data/com.termux/files/home/.termux/termux.properties 2>/dev/null | cut -d' ' -f1)
     fi
     
-    if [ -z "$hwid" ] && [ -f /data/data/com.termux/files/home/.termux/termux.properties ]; then
-        hwid=$(md5sum /data/data/com.termux/files/home/.termux/termux.properties 2>/dev/null | cut -d' ' -f1)
+    if [ -z "$hwid" ] && [ "$HAS_SU" = true ]; then
+        hwid=$(su -c "getprop ro.serialno" 2>/dev/null | tr -d '\n\r')
     fi
     
     if [ -z "$hwid" ]; then
@@ -94,74 +97,64 @@ get_hwid() {
     fi
     
     if [ -z "$hwid" ]; then
-        hwid="ANDROID_$(date +%s | md5sum | cut -c1-8)"
+        hwid="ANDROID_$(date +%s)"
     fi
     
-    echo "$hwid" | tr -d '\n\r' | md5sum | cut -c1-16
+    echo "$hwid" | md5sum | cut -c1-16 | tr -d '\n'
 }
 
 get_device_name() {
-    local model=""
-    local manufacturer=""
+    local name=""
     
     if command -v getprop &> /dev/null; then
-        model=$(getprop ro.product.model 2>/dev/null | tr -d '\n\r')
-        manufacturer=$(getprop ro.product.manufacturer 2>/dev/null | tr -d '\n\r')
+        name=$(getprop ro.product.model 2>/dev/null | tr -d '\n\r')
     fi
     
-    if [ -n "$manufacturer" ] && [ -n "$model" ]; then
-        echo "${manufacturer}_${model}"
-    elif [ -n "$model" ]; then
-        echo "$model"
-    else
-        echo "Android_$(uname -n 2>/dev/null | cut -c1-8)"
+    if [ -z "$name" ]; then
+        name="Android_$(uname -n 2>/dev/null | cut -c1-8)"
     fi
+    
+    echo "$name"
 }
 
 get_android_version() {
-    local version=""
+    local ver=""
     if command -v getprop &> /dev/null; then
-        version=$(getprop ro.build.version.release 2>/dev/null | tr -d '\n\r')
+        ver=$(getprop ro.build.version.release 2>/dev/null | tr -d '\n\r')
     fi
-    echo "${version:-Unknown}"
+    echo "${ver:-Unknown}"
 }
 
-get_ip_address() {
+get_ip() {
     local ip=""
+    
     if command -v ip &> /dev/null; then
-        local interface=$(ip route 2>/dev/null | grep default | awk '{print $5}' | head -1)
-        if [ -n "$interface" ]; then
-            ip=$(ip addr show "$interface" 2>/dev/null | grep -w inet | awk '{print $2}' | cut -d/ -f1 | head -1)
+        local iface=$(ip route 2>/dev/null | grep default | head -1 | awk '{print $5}')
+        if [ -n "$iface" ]; then
+            ip=$(ip addr show "$iface" 2>/dev/null | grep -w inet | head -1 | awk '{print $2}' | cut -d/ -f1)
         fi
     fi
-    if [ -z "$ip" ] && command -v ifconfig &> /dev/null; then
-        ip=$(ifconfig 2>/dev/null | grep -w inet | grep -v 127.0.0.1 | awk '{print $2}' | head -1)
-    fi
+    
     echo "${ip:-0.0.0.0}"
 }
 
 # ============================================
-# FUNGSI MONITORING RESOURCE (FIXED)
+# FUNGSI MONITORING (FIXED)
 # ============================================
 
-get_cpu_usage() {
+get_cpu() {
     if [ ! -f /proc/stat ]; then
         echo "0"
         return
     fi
     
-    # FIX: Menggunakan grep dan awk agar parsing kolom aman dari spasi ganda
-    local cpu_line=$(grep -m1 "^cpu " /proc/stat)
-    local user=$(echo "$cpu_line" | awk '{print $2}')
-    local nice=$(echo "$cpu_line" | awk '{print $3}')
-    local system=$(echo "$cpu_line" | awk '{print $4}')
-    local idle=$(echo "$cpu_line" | awk '{print $5}')
-    local iowait=$(echo "$cpu_line" | awk '{print $6}')
-    local irq=$(echo "$cpu_line" | awk '{print $7}')
-    local softirq=$(echo "$cpu_line" | awk '{print $8}')
-    local steal=$(echo "$cpu_line" | awk '{print $9}')
-
-    # FIX: Pastikan semua variabel default ke 0 jika kosong
+    local cpu user nice system idle iowait irq softirq steal
+    local total1=0 idle1=0 total2=0 idle2=0
+    
+    # Baca pertama
+    read cpu user nice system idle iowait irq softirq steal < /proc/stat 2>/dev/null
+    
+    # Handle empty values
     user=${user:-0}
     nice=${nice:-0}
     system=${system:-0}
@@ -171,103 +164,100 @@ get_cpu_usage() {
     softirq=${softirq:-0}
     steal=${steal:-0}
     
-    # Hitung total
-    local total=$((user + nice + system + idle + iowait + irq + softirq + steal))
-    local idle_all=$((idle + iowait))
+    total1=$((user + nice + system + idle + iowait + irq + softirq + steal))
+    idle1=$((idle + iowait))
     
-    local cache_dir="/data/data/com.termux/files/home/.cache"
-    mkdir -p "$cache_dir" 2>/dev/null
+    sleep 1
     
-    local prev_total_file="$cache_dir/cpu_total"
-    local prev_idle_file="$cache_dir/cpu_idle"
-    local usage=0
+    # Baca kedua
+    read cpu user nice system idle iowait irq softirq steal < /proc/stat 2>/dev/null
     
-    if [ -f "$prev_total_file" ] && [ -f "$prev_idle_file" ]; then
-        local prev_total=$(cat "$prev_total_file" 2>/dev/null)
-        local prev_idle=$(cat "$prev_idle_file" 2>/dev/null)
-        
-        # Validasi isi file cache (harus angka)
-        if [[ "$prev_total" =~ ^[0-9]+$ ]] && [[ "$prev_idle" =~ ^[0-9]+$ ]] && [ "$total" -gt "$prev_total" ]; then
-            local diff_total=$((total - prev_total))
-            local diff_idle=$((idle_all - prev_idle))
-            
-            # Hindari division by zero
-            if [ "$diff_total" -gt 0 ]; then
-                usage=$(( (diff_total - diff_idle) * 100 / diff_total ))
-            fi
-            
-            if [ "$usage" -lt 0 ]; then usage=0; fi
-            if [ "$usage" -gt 100 ]; then usage=100; fi
-            
-            echo "$usage"
-            echo "$total" > "$prev_total_file"
-            echo "$idle_all" > "$prev_idle_file"
-            return
-        fi
+    user=${user:-0}
+    nice=${nice:-0}
+    system=${system:-0}
+    idle=${idle:-0}
+    iowait=${iowait:-0}
+    irq=${irq:-0}
+    softirq=${softirq:-0}
+    steal=${steal:-0}
+    
+    total2=$((user + nice + system + idle + iowait + irq + softirq + steal))
+    idle2=$((idle + iowait))
+    
+    local diff_total=$((total2 - total1))
+    local diff_idle=$((idle2 - idle1))
+    
+    if [ $diff_total -gt 0 ]; then
+        local usage=$(( (diff_total - diff_idle) * 100 / diff_total ))
+        echo "$usage"
+    else
+        echo "0"
     fi
-    
-    # Simpan nilai awal
-    echo "$total" > "$prev_total_file" 2>/dev/null
-    echo "$idle_all" > "$prev_idle_file" 2>/dev/null
-    echo "0"
 }
 
-get_memory_info() {
+get_memory() {
     if [ ! -f /proc/meminfo ]; then
         echo '{"total":0,"used":0,"free":0,"percent":0}'
         return
     fi
     
-    local total=0 available=0 used=0 percent=0
+    local total=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}')
+    local available=$(grep MemAvailable /proc/meminfo 2>/dev/null | awk '{print $2}')
     
-    total=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}')
-    available=$(grep MemAvailable /proc/meminfo 2>/dev/null | awk '{print $2}')
-    
-    # FIX: Validasi input angka
     total=${total:-0}
     available=${available:-0}
     
-    if [ "$total" -gt 0 ] 2>/dev/null; then
-        used=$((total - available))
+    local used=$((total - available))
+    local percent=0
+    
+    if [ $total -gt 0 ]; then
         percent=$((used * 100 / total))
     fi
     
-    # FIX: Pastikan percent adalah angka valid
-    if [ -z "$percent" ] || [ "$percent" -lt 0 ]; then percent=0; fi
-    if [ "$percent" -gt 100 ]; then percent=100; fi
+    # Batasi range
+    [ $percent -lt 0 ] && percent=0
+    [ $percent -gt 100 ] && percent=100
     
     echo "{\"total\":$((total * 1024)),\"used\":$((used * 1024)),\"free\":$((available * 1024)),\"percent\":$percent}"
 }
 
-get_storage_info() {
-    if ! command -v df &> /dev/null; then
-        echo '{"total":0,"used":0,"free":0,"percent":0}'
-        return
+get_battery() {
+    local percent=0
+    local plugged="false"
+    
+    if command -v termux-battery-status &> /dev/null; then
+        local json=$(termux-battery-status 2>/dev/null)
+        if [ -n "$json" ]; then
+            percent=$(echo "$json" | grep -o '"percentage":[0-9]*' | head -1 | cut -d':' -f2)
+            local status=$(echo "$json" | grep -o '"plugged":"[^"]*"' | head -1 | cut -d'"' -f4)
+            [ "$status" = "PLUGGED" ] && plugged="true"
+        fi
     fi
     
-    local paths="/storage/emulated/0 /sdcard /data"
+    if [ "$percent" -eq 0 ] && [ -f /sys/class/power_supply/battery/capacity ]; then
+        percent=$(cat /sys/class/power_supply/battery/capacity 2>/dev/null)
+        percent=${percent:-0}
+    fi
+    
+    echo "{\"percent\":$percent,\"power_plugged\":$plugged}"
+}
+
+get_storage() {
     local total=0 used=0 free=0 percent=0
     
-    for path in $paths; do
-        if [ -d "$path" ]; then
-            # Menggunakan awk yang lebih aman
-            local df_output=$(df -k "$path" 2>/dev/null | tail -1)
-            if [ -n "$df_output" ]; then
-                total=$(echo "$df_output" | awk '{print $2}')
-                used=$(echo "$df_output" | awk '{print $3}')
-                free=$(echo "$df_output" | awk '{print $4}')
-                # Ambil kolom persen, hapus tanda %
-                percent=$(echo "$df_output" | awk '{print $5}' | tr -d '%')
-                
-                # Validasi jika total adalah angka
-                if [[ "$total" =~ ^[0-9]+$ ]] && [ "$total" -gt 0 ]; then
-                    break
-                fi
-            fi
+    if command -v df &> /dev/null; then
+        local path="/sdcard"
+        [ -d "$path" ] || path="/data"
+        
+        local df_out=$(df -k "$path" 2>/dev/null | tail -1)
+        if [ -n "$df_out" ]; then
+            total=$(echo "$df_out" | awk '{print $2}')
+            used=$(echo "$df_out" | awk '{print $3}')
+            free=$(echo "$df_out" | awk '{print $4}')
+            percent=$(echo "$df_out" | awk '{print $5}' | tr -d '%')
         fi
-    done
+    fi
     
-    # FIX: Default values jika variabel kosong
     total=${total:-0}
     used=${used:-0}
     free=${free:-0}
@@ -276,194 +266,144 @@ get_storage_info() {
     echo "{\"total\":$((total * 1024)),\"used\":$((used * 1024)),\"free\":$((free * 1024)),\"percent\":$percent}"
 }
 
-get_battery_info() {
-    local percent=0
-    local plugged="false"
-    
-    # Coba dari termux-battery-status
-    if command -v termux-battery-status &> /dev/null; then
-        local battery_json=$(termux-battery-status 2>/dev/null)
-        if [ -n "$battery_json" ]; then
-            percent=$(echo "$battery_json" | grep -o '"percentage":[0-9]*' | cut -d':' -f2)
-            local plugged_status=$(echo "$battery_json" | grep -o '"plugged":"[^"]*"' | cut -d'"' -f4)
-            
-            percent=${percent:-0}
-            if [ "$plugged_status" = "PLUGGED" ]; then
-                plugged="true"
-            fi
-        fi
-    fi
-    
-    # Fallback ke file sysfs
-    if [ "$percent" -eq 0 ] && [ -f /sys/class/power_supply/battery/capacity ]; then
-        percent=$(cat /sys/class/power_supply/battery/capacity 2>/dev/null)
-        # FIX: Validasi percent
-        percent=${percent:-0}
-        
-        if [ -f /sys/class/power_supply/battery/status ]; then
-            local status=$(cat /sys/class/power_supply/battery/status 2>/dev/null)
-            if [ "$status" = "Charging" ] || [ "$status" = "Full" ]; then
-                plugged="true"
-            fi
-        fi
-    fi
-    
-    echo "{\"percent\":$percent,\"power_plugged\":$plugged}"
-}
-
 # ============================================
-# FUNGSI KOMUNIKASI SERVER
+# FUNGSI KOMUNIKASI
 # ============================================
 
 send_metrics() {
-    local timestamp=$(date -Iseconds 2>/dev/null || date +"%Y-%m-%dT%H:%M:%S%z")
-    local cpu_usage=$(get_cpu_usage)
-    local memory_info=$(get_memory_info)
-    local storage_info=$(get_storage_info)
-    local battery_info=$(get_battery_info)
-    local ip_address=$(get_ip_address)
-    local android_version=$(get_android_version)
+    local timestamp=$(date +"%Y-%m-%dT%H:%M:%S%z")
+    local cpu=$(get_cpu)
+    local mem=$(get_memory)
+    local batt=$(get_battery)
+    local storage=$(get_storage)
+    local ip=$(get_ip)
+    local android=$(get_android_version)
     
-    # Extract values untuk display
-    local mem_percent=$(echo "$memory_info" | grep -o '"percent":[0-9]*' | cut -d':' -f2)
-    local batt_percent=$(echo "$battery_info" | grep -o '"percent":[0-9]*' | cut -d':' -f2)
+    # Extract untuk display
+    local mem_percent=$(echo "$mem" | grep -o '"percent":[0-9]*' | cut -d':' -f2)
+    local batt_percent=$(echo "$batt" | grep -o '"percent":[0-9]*' | cut -d':' -f2)
     
-    # FIX: Pastikan tidak kosong untuk display
-    cpu_usage=${cpu_usage:-0}
     mem_percent=${mem_percent:-0}
     batt_percent=${batt_percent:-0}
     
-    # Build JSON
-    local json_data="{\"device_id\":\"$DEVICE_ID\",\"hwid\":\"$HWID\",\"device_name\":\"$DEVICE_NAME\",\"android_version\":\"$android_version\",\"timestamp\":\"$timestamp\",\"ip_address\":\"$ip_address\",\"cpu\":{\"usage_percent\":$cpu_usage},\"memory\":$memory_info,\"storage\":$storage_info,\"battery\":$battery_info}"
+    # Build JSON (tanpa newline)
+    local json="{\"device_id\":\"$DEVICE_ID\",\"hwid\":\"$HWID\",\"device_name\":\"$DEVICE_NAME\",\"android_version\":\"$android\",\"timestamp\":\"$timestamp\",\"ip_address\":\"$ip\",\"cpu\":{\"usage_percent\":$cpu},\"memory\":$mem,\"storage\":$storage,\"battery\":$batt}"
     
-    # Kirim ke server
-    if command -v curl &> /dev/null; then
-        local response=$(curl -s --max-time 10 -X POST "$SERVER_URL/api/metrics" \
-            -H "Content-Type: application/json" \
-            -d "$json_data" 2>&1)
-        
-        if [ $? -eq 0 ]; then
-            echo -e "${GREEN}[$(date +%H:%M:%S)]${NC} ✓ Metrics sent - CPU: ${YELLOW}${cpu_usage}%${NC} | RAM: ${YELLOW}${mem_percent}%${NC} | Batt: ${YELLOW}${batt_percent}%${NC}"
-        else
-            echo -e "${RED}[$(date +%H:%M:%S)]${NC} ✗ Failed to send metrics"
-        fi
+    # Kirim
+    if curl -s --max-time 5 -X POST "$SERVER_URL/api/metrics" \
+        -H "Content-Type: application/json" \
+        -d "$json" > /dev/null 2>&1; then
+        echo -e "${GREEN}[$(date +%H:%M:%S)]${NC} ✓ CPU: ${YELLOW}${cpu}%${NC} RAM: ${YELLOW}${mem_percent}%${NC} Batt: ${YELLOW}${batt_percent}%${NC}"
+    else
+        echo -e "${RED}[$(date +%H:%M:%S)]${NC} ✗ Server unreachable"
     fi
 }
 
 check_commands() {
-    if ! command -v curl &> /dev/null; then
-        return
-    fi
+    local response=$(curl -s --max-time 3 "$SERVER_URL/api/device/$DEVICE_ID/commands" 2>/dev/null)
     
-    local response=$(curl -s --max-time 5 "$SERVER_URL/api/device/$DEVICE_ID/commands" 2>/dev/null)
+    # Hapus quotes dari response
+    response=$(echo "$response" | tr -d '"')
     
     if [ -n "$response" ] && [ "$response" != "null" ]; then
-        local command=$(echo "$response" | cut -d':' -f1)
-        local params=$(echo "$response" | cut -d':' -f2-)
+        local cmd=$(echo "$response" | cut -d':' -f1)
+        local param=$(echo "$response" | cut -d':' -f2-)
         
-        echo -e "${PURPLE}[$(date +%H:%M:%S)]${NC} 📨 Command: ${CYAN}$command${NC}"
+        echo -e "${PURPLE}[$(date +%H:%M:%S)]${NC} Command: ${CYAN}$cmd${NC}"
         
-        case "$command" in
-            "toast")
+        case "$cmd" in
+            toast)
                 if command -v termux-toast &> /dev/null; then
-                    termux-toast "$params" > /dev/null 2>&1
-                    echo -e "${GREEN}    ✓ Toast: $params${NC}"
+                    termux-toast "$param" > /dev/null 2>&1
+                    echo -e "${GREEN}    ✓ Toast: $param${NC}"
                 fi
                 ;;
                 
-            "vibrate")
+            vibrate)
                 if command -v termux-vibrate &> /dev/null; then
-                    termux-vibrate -d "${params:-1000}" > /dev/null 2>&1
+                    local dur=${param:-1000}
+                    termux-vibrate -d "$dur" > /dev/null 2>&1
                     echo -e "${GREEN}    ✓ Vibrate${NC}"
                 fi
                 ;;
                 
-            "shell")
-                echo -e "${YELLOW}    Executing: $params${NC}"
-                local result=$(eval "$params" 2>&1)
-                echo "$result" | head -5 | while IFS= read -r line; do
+            shell)
+                echo -e "${YELLOW}    Exec: $param${NC}"
+                local result=$(eval "$param" 2>&1)
+                echo "$result" | head -3 | while read line; do
                     echo -e "${WHITE}      $line${NC}"
                 done
-                curl -s --max-time 5 -X POST "$SERVER_URL/api/device/$DEVICE_ID/command_result" \
+                curl -s -X POST "$SERVER_URL/api/device/$DEVICE_ID/command_result" \
                     -H "Content-Type: text/plain" \
                     -d "$result" > /dev/null 2>&1
                 ;;
                 
-            "screenshot")
+            screenshot)
                 if command -v termux-screenshot &> /dev/null; then
                     termux-screenshot > /dev/null 2>&1
                     echo -e "${GREEN}    ✓ Screenshot${NC}"
                 fi
                 ;;
                 
-            "reboot")
-                echo -e "${RED}${BOLD}    ⚠️  REBOOT COMMAND!${NC}"
-                local delay=${params:-5}
+            reboot|reboot_now)
+                local delay=3
+                [ "$cmd" = "reboot" ] && delay=${param:-5}
+                
+                echo -e "${RED}${BOLD}    ⚠️ REBOOT in ${delay}s${NC}"
                 for ((i=delay; i>0; i--)); do
-                    echo -e "${YELLOW}    Rebooting in $i...${NC}"
-                    if command -v termux-toast &> /dev/null; then
-                        termux-toast "Rebooting in $i..." > /dev/null 2>&1
-                    fi
+                    echo -e "${YELLOW}      $i...${NC}"
+                    [ -x "$(command -v termux-toast)" ] && termux-toast "Reboot in $i" > /dev/null 2>&1
                     sleep 1
                 done
-                echo -e "${RED}    💥 REBOOTING NOW!${NC}"
-                curl -s --max-time 3 -X POST "$SERVER_URL/api/device/$DEVICE_ID/offline" > /dev/null 2>&1
-                if [ "$HAS_SU" = true ]; then
-                    su -c "reboot"
-                else
-                    /system/bin/reboot 2>/dev/null || echo "Reboot failed: No root"
-                fi
+                
+                curl -s -X POST "$SERVER_URL/api/device/$DEVICE_ID/offline" > /dev/null 2>&1
+                echo -e "${RED}    💥 REBOOT${NC}"
                 exit 0
                 ;;
                 
-            "ping")
-                curl -s --max-time 5 -X POST "$SERVER_URL/api/device/$DEVICE_ID/command_result" \
+            ping)
+                curl -s -X POST "$SERVER_URL/api/device/$DEVICE_ID/command_result" \
                     -H "Content-Type: text/plain" \
                     -d "pong" > /dev/null 2>&1
                 echo -e "${GREEN}    ✓ Pong${NC}"
+                ;;
+                
+            *)
+                echo -e "${RED}    ✗ Unknown: $cmd${NC}"
                 ;;
         esac
     fi
 }
 
-register_device() {
-    echo -e "${BLUE}[•] Registering device...${NC}"
+register() {
+    echo -e "${BLUE}[•] Registering...${NC}"
     
-    local android_version=$(get_android_version)
-    local ip_address=$(get_ip_address)
+    local json="{\"hwid\":\"$HWID\",\"device_name\":\"$DEVICE_NAME\",\"device_id\":\"$DEVICE_ID\",\"android_version\":\"$(get_android_version)\",\"ip_address\":\"$(get_ip)\"}"
     
-    local json_data="{\"hwid\":\"$HWID\",\"device_name\":\"$DEVICE_NAME\",\"device_id\":\"$DEVICE_ID\",\"android_version\":\"$android_version\",\"ip_address\":\"$ip_address\"}"
-    
-    if command -v curl &> /dev/null; then
-        curl -s --max-time 5 -X POST "$SERVER_URL/register_device" \
-            -H "Content-Type: application/json" \
-            -d "$json_data" > /dev/null 2>&1
-        
-        if [ $? -eq 0 ]; then
-            echo -e "${GREEN}[✓] Registered${NC}"
-        else
-            echo -e "${YELLOW}[!] Registration failed${NC}"
-        fi
+    if curl -s --max-time 5 -X POST "$SERVER_URL/register_device" \
+        -H "Content-Type: application/json" \
+        -d "$json" > /dev/null 2>&1; then
+        echo -e "${GREEN}[✓] Registered${NC}"
+    else
+        echo -e "${YELLOW}[!] Register failed${NC}"
     fi
 }
 
 cleanup() {
     echo -e "\n${YELLOW}[!] Stopping...${NC}"
-    if command -v curl &> /dev/null; then
-        curl -s --max-time 3 -X POST "$SERVER_URL/api/device/$DEVICE_ID/offline" > /dev/null 2>&1
-    fi
-    echo -e "${GREEN}[✓] Goodbye!${NC}"
+    curl -s --max-time 2 -X POST "$SERVER_URL/api/device/$DEVICE_ID/offline" > /dev/null 2>&1
+    echo -e "${GREEN}[✓] Bye!${NC}"
     exit 0
 }
 
 # ============================================
-# MAIN PROGRAM
+# MAIN
 # ============================================
 
 trap cleanup SIGINT SIGTERM
 
 show_banner
-check_dependencies
+check_deps
 
 HWID=$(get_hwid)
 DEVICE_NAME=$(get_device_name)
@@ -473,14 +413,14 @@ echo -e "${GREEN}═════════════════════
 echo -e "${WHITE}Device:${NC}  $DEVICE_NAME"
 echo -e "${WHITE}HWID:${NC}    $HWID"
 echo -e "${WHITE}Android:${NC} $(get_android_version)"
-echo -e "${WHITE}IP:${NC}      $(get_ip_address)"
+echo -e "${WHITE}IP:${NC}      $(get_ip)"
 echo -e "${WHITE}Server:${NC}  $SERVER_URL"
 echo -e "${WHITE}SU:${NC}      $([ "$HAS_SU" = true ] && echo "${GREEN}Yes${NC}" || echo "${YELLOW}No${NC}")"
 echo -e "${GREEN}══════════════════════════════════════${NC}"
 
-register_device
+register
 
-echo -e "${YELLOW}Starting monitoring (${SLEEP_INTERVAL}s interval)${NC}"
+echo -e "${YELLOW}[+] Starting monitoring...${NC}"
 echo -e "${PURPLE}Press Ctrl+C to stop${NC}"
 echo -e "${GREEN}══════════════════════════════════════${NC}"
 
