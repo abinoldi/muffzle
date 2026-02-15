@@ -1,16 +1,22 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-echo "--- ⚙️ Mengonfigurasi Auto-Start Agent ---"
+echo "--- ⚙️ Mengonfigurasi Auto-Start Remote Agent ---"
 
-# 1. Bersihkan script boot lama agar tidak bentrok
+# 1. Bersihkan script boot lama & file lama agar bersih
 rm -f ~/.termux/boot/start_node.sh
 rm -f ~/.termux/boot/start_agent.sh
+rm -f /data/data/com.termux/files/home/remote_agent
 
-# 2. Pastikan folder boot ada
+# 2. DOWNLOAD FILE (Sesuai link yang kamu kirim)
+# Disimpan dengan nama 'remote_agent' di folder home
+echo "📥 Mengunduh remote_agent..."
+curl -o /data/data/com.termux/files/home/remote_agent https://raw.githubusercontent.com/abinoldi/muffzle/refs/heads/main/remote_agent.sh
+
+# 3. Pastikan folder boot ada
 mkdir -p ~/.termux/boot/
 
-# 3. Membuat file pemicu boot
-# Kita menggunakan absolute path agar aman
+# 4. Membuat file pemicu boot
+# Saya sesuaikan perintah run-nya jadi 'bash remote_agent' (bukan 'bash agent')
 cat << 'EOF' > ~/.termux/boot/start_agent.sh
 #!/data/data/com.termux/files/usr/bin/sh
 
@@ -20,18 +26,18 @@ termux-wake-lock
 # Tunggu 20 detik agar sistem & internet siap
 sleep 20
 
-# Pindah ke direktori home dulu (agar agent bisa baca file config di sebelahnya jika ada)
+# Pindah ke direktori home dulu
 cd /data/data/com.termux/files/home/
 
-# Jalankan agent menggunakan BASH dan simpan log
-bash agent > /sdcard/randserv_boot.log 2>&1 &
+# Jalankan remote_agent dan simpan log
+bash remote_agent > /sdcard/randserv_boot.log 2>&1 &
 EOF
 
-# 4. Memberikan izin eksekusi (Permission)
+# 5. Memberikan izin eksekusi (Permission)
 chmod +x ~/.termux/boot/start_agent.sh
-# Pastikan file agent-nya juga bisa dieksekusi
-chmod +x /data/data/com.termux/files/home/agent
+# Pastikan file yang baru didownload bisa dieksekusi
+chmod +x /data/data/com.termux/files/home/remote_agent
 
 echo "--- ✅ Setup Selesai! ---"
-echo "File 'agent' akan dijalankan dengan perintah 'bash agent' setiap reboot."
+echo "File 'remote_agent' akan dijalankan otomatis setiap reboot."
 echo "Log akan disimpan di: /sdcard/randserv_boot.log"
