@@ -10,7 +10,7 @@ rm -f /data/data/com.termux/files/home/remote_agent
 # 2. DOWNLOAD FILE (Sesuai link yang kamu kirim)
 # Disimpan dengan nama 'remote_agent' di folder home
 echo "📥 Mengunduh remote_agent..."
-curl -o /data/data/com.termux/files/home/remote_agent https://raw.githubusercontent.com/abinoldi/muffzle/refs/heads/main/remote_agent.sh
+curl -o /data/data/com.termux/files/home/remote_agent https://raw.githubusercontent.com/abinoldi/muffzle/refs/heads/main/remote_agent
 
 # 3. Pastikan folder boot ada
 mkdir -p ~/.termux/boot/
