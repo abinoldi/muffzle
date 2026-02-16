@@ -1,0 +1,106 @@
+--[[
+    SYNCEHUB UTILITY: TELEPORT & AUTO TRADE (VIRTUAL CLICK)
+    Gabungan dari Standalone Teleport + Auto Accept Trade
+]]
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local CoreGui = game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Variables
+local AutoTradeEnabled = false
+local Locations = {
+    ["Second Enchant Altar"] = Vector3.new(1479.587, 128.295, -604.224),
+    ["Iron Cavern"] = Vector3.new(-8792.546, -588.000, 230.642),
+    ["Enchant Room"] = Vector3.new(3255.670, -1301.530, 1371.790),
+    ["Ancient Jungle"] = Vector3.new(1535.639, 3.159, -193.352),
+    ["Sacred Temple"] = Vector3.new(1461.815, -22.125, -670.234),
+    ["Treasure Room"] = Vector3.new(-3598.440, -281.274, -1645.855),
+    ["Fisherman Island"] = Vector3.new(74.030, 9.530, 2705.230),
+    ["Sunken Wreckage"] = Vector3.new(1547.050, 4.410, 2697.550), -- Tambahan lokasi umum
+}
+
+-- =================================================================
+-- 1. FUNGSI LOGIKA (AUTO TRADE & TELEPORT)
+-- =================================================================
+
+-- Fungsi Teleport
+local function DirectTP(pos)
+    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        -- Freeze sebentar biar ga jatuh ke void
+        local oldAnchored = hrp.Anchored
+        hrp.Anchored = true
+        hrp.CFrame = CFrame.new(pos + Vector3.new(0, 5, 0)) -- Teleport 5 studs di atas
+        task.wait(0.5)
+        hrp.Anchored = oldAnchored
+    end
+end
+
+-- Fungsi Virtual Click (Simulasi Mouse)
+local function VirtualClick(button)
+    if not button or not button:IsDescendantOf(game) then return end
+    
+    local pos = button.AbsolutePosition
+    local size = button.AbsoluteSize
+    local centerX = pos.X + (size.X / 2)
+    local centerY = pos.Y + (size.Y / 2)
+    
+    -- Klik Kiri (Tekan & Lepas)
+    VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
+    task.wait(0.05)
+    VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
+end
+
+-- Fungsi Scan & Accept Trade
+local function CheckAndClickTrade()
+    if not AutoTradeEnabled then return end
+
+    for _, gui in pairs(PlayerGui:GetDescendants()) do
+        if gui:IsA("TextLabel") or gui:IsA("TextButton") then
+            -- Deteksi teks Trade
+            if gui.Visible and (gui.Text:find("Trade Request") or gui.Text:find("wants to trade")) then
+                local parent = gui.Parent
+                if parent then
+                    for _, btn in pairs(parent:GetDescendants()) do
+                        if btn:IsA("TextButton") or btn:IsA("ImageButton") then
+                            -- Cari tombol konfirmasi
+                            if btn.Visible and (btn.Name:find("Confirm") or btn.Name:find("Yes") or btn.Name:find("Accept") or btn.Name == "Button1") then
+                                VirtualClick(btn)
+                                return -- Stop loop agar tidak spam klik
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Loop Auto Trade di Background
+task.spawn(function()
+    while true do
+        if AutoTradeEnabled then
+            pcall(CheckAndClickTrade)
+        end
+        task.wait(1) -- Cek setiap 1 detik
+    end
+end)
+
+-- =================================================================
+-- 2. MEMBUAT UI (GUI)
+-- =================================================================
+
+-- Hapus GUI lama jika ada biar gak numpuk
+if CoreGui:FindFirstChild("SynceHubCombinedUI") then
+    CoreGui.SynceHubCombinedUI:Destroy()
+end
+
+local sg = Instance.new("ScreenGui")
+sg.Name = "SynceHubCombinedUI"
+sg.ResetOnSpawn = false
+-- Coba pasang di CoreGui (lebih aman dari reset), fallback ke 
