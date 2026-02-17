@@ -26,7 +26,7 @@ const GAP_Y = 60;
 
 // --- TIMING ---
 const CHECK_INTERVAL = 60;
-const POST_GAME_WAIT = 15000;
+const POST_GAME_WAIT = 40000;
 // Dikurangi jadi 15 detik agar tidak menunggu terlalu lama (opsional)
 
 function ensurePackage(pkg) {
