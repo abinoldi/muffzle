@@ -12,7 +12,7 @@ const PLACE_ID = "121864768012064";
 // STATUS MONITORING (DIMATIKAN UNTUK SEKALI JALAN)
 const CHECK_SERVER_PRESENCE = false; 
 const AUTO_RECONNECT = false;     
-const AUTO_RANDOM_CODE = false; 
+const AUTO_RANDOM_CODE = false;
 
 // --- MEMORY SETTINGS ---
 const MEMORY_CLEAR_INTERVAL = 900; // Tidak terlalu berpengaruh karena script langsung exit
@@ -26,7 +26,8 @@ const GAP_Y = 60;
 
 // --- TIMING ---
 const CHECK_INTERVAL = 60;
-const POST_GAME_WAIT = 15000; // Dikurangi jadi 15 detik agar tidak menunggu terlalu lama (opsional)
+const POST_GAME_WAIT = 15000;
+// Dikurangi jadi 15 detik agar tidak menunggu terlalu lama (opsional)
 
 function ensurePackage(pkg) {
   try { 
@@ -204,10 +205,8 @@ function renderDashboard(cleanCode, statusMessage) {
   const stats = getSystemStats();
   console.log(`📱 SYSTEM: CPU ${stats.cpu} | RAM ${stats.ram} | UP ${stats.uptime}`);
   console.log(`📏 MODE: XML GRID (${GRID_COLS} cols) | GAP Y: ${GAP_Y}px`);
-  
   // Karena mode sekali jalan, status monitoring di hardcode
   console.log(`📊 STATUS: ${statusMessage} | Mode: ONE-SHOT (No Loop) | Code: ${cleanCode}`);
-  
   const termWidth = process.stdout.columns || 80;
   const safeWidth = Math.max(40, termWidth - 8); 
 
@@ -216,13 +215,11 @@ function renderDashboard(cleanCode, statusMessage) {
   const wState = Math.floor(safeWidth * 0.15);
   const wStatus = Math.floor(safeWidth * 0.20);
   const wAction = Math.max(5, safeWidth - (wPkg + wUser + wState + wStatus));
-  
   const table = new Table({ 
       head: ['Pkg', 'User', 'State', 'Status', 'Action'], 
       colWidths: [wPkg, wUser, wState, wStatus, wAction],
       wordWrap: true 
   });
-  
   Object.keys(accountStates).sort().forEach(pkg => {
     const s = accountStates[pkg];
     table.push([
@@ -291,31 +288,44 @@ async function main() {
   if (!AUTO_RANDOM_CODE) {
     const argIndex = process.argv.indexOf("-server");
     let selectedIdx = -1;
-
+    
+    // --- MODIFIKASI DIMULAI DARI SINI ---
     if (argIndex !== -1 && process.argv[argIndex + 1]) {
-        selectedIdx = parseInt(process.argv[argIndex + 1]) - 1;
+        if (process.argv[argIndex + 1] === "0") {
+            cleanCode = "PUBLIC";
+            console.log("\n✅ Auto-selecting Public Server (No Code).");
+        } else {
+            selectedIdx = parseInt(process.argv[argIndex + 1]) - 1;
+        }
     }
 
-    if (selectedIdx >= 0 && selectedIdx < codes.length) {
-        console.log(`\n✅ Auto-selecting Server [${selectedIdx + 1}] via arguments.`);
-        cleanCode = codes[selectedIdx];
-    } else {
-        console.log("\n📜 Available Codes:");
-        codes.forEach((code, index) => console.log(`[${index + 1}] ${code}`));
-        
-        const selection = await ask("\n👉 Choose Server: ");
-        const idx = parseInt(selection) - 1;
-        
-        if (isNaN(idx) || idx < 0 || idx >= codes.length) {
-            console.log("❌ Invalid selection.");
-            process.exit(1);
+    if (cleanCode !== "PUBLIC") {
+        if (selectedIdx >= 0 && selectedIdx < codes.length) {
+            console.log(`\n✅ Auto-selecting Server [${selectedIdx + 1}] via arguments.`);
+            cleanCode = codes[selectedIdx];
+        } else {
+            console.log("\n📜 Available Codes:");
+            console.log("[0] Public Server (No Code)"); // Tambahan opsi menu 0
+            codes.forEach((code, index) => console.log(`[${index + 1}] ${code}`));
+            
+            const selection = await ask("\n👉 Choose Server: ");
+            
+            if (selection === "0") {
+                cleanCode = "PUBLIC";
+            } else {
+                const idx = parseInt(selection) - 1;
+                
+                if (isNaN(idx) || idx < 0 || idx >= codes.length) {
+                    console.log("❌ Invalid selection.");
+                    process.exit(1);
+                }
+                cleanCode = codes[idx];
+            }
         }
-        cleanCode = codes[idx];
     }
   }
 
   autoArrangeXML(accounts.map(a => a.pkg));
-  
   // --- LAUNCHING ---
   console.log("\n🚀 Launching valid instances...");
   for (let i = 0; i < accounts.length; i++) {
@@ -323,26 +333,33 @@ async function main() {
     stopPackage(acc.pkg);
     
     let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
-    if(currentCode.includes("linkCode=")) {
-        currentCode = currentCode.split("linkCode=")[1].split("&")[0];
+    
+    // Logic URL Launching (Dimodifikasi untuk handle PUBLIC)
+    let finalLaunchUrl;
+    if (currentCode === "PUBLIC") {
+        finalLaunchUrl = `roblox://placeID=${PLACE_ID}`; // Tanpa linkCode
+    } else {
+        if(currentCode.includes("linkCode=")) {
+            currentCode = currentCode.split("linkCode=")[1].split("&")[0];
+        }
+        finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
     }
-    const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
+    // --- MODIFIKASI BERAKHIR DI SINI ---
+    
     await launchPackage(acc.pkg, finalLaunchUrl);
     
     lastRestartMap[acc.pkg] = Date.now();
     accountStates[acc.pkg].isRunning = true;
     accountStates[acc.pkg].serverStatus = "Joining...";
-    
     // --- WAIT FOR IN-GAME (Tetap dipertahankan agar tidak crash karena launch terlalu cepat) ---
     let inGame = false;
     const startTime = Date.now();
     // Timeout 60 detik agar tidak stuck selamanya jika error
     while (!inGame && (Date.now() - startTime) < 60000) {
       renderDashboard(
-          AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+          AUTO_RANDOM_CODE ? "RANDOM" : (cleanCode === "PUBLIC" ? "PUBLIC" : `...${cleanCode.slice(-4)}`), 
           `⏳ ${acc.username} Joining... (${Math.floor((Date.now() - startTime)/1000)}s)`
       );
-      
       const status = await getSinglePresence(acc.userId, acc.cookie);
       accountStates[acc.pkg].serverStatus = status;
 
@@ -360,12 +377,11 @@ async function main() {
     // Hanya tunggu sebentar untuk memberi jeda antar akun
     const timer = setInterval(() => {
         renderDashboard(
-            AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+            AUTO_RANDOM_CODE ? "RANDOM" : (cleanCode === "PUBLIC" ? "PUBLIC" : `...${cleanCode.slice(-4)}`), 
             `✅ ${acc.username} In Game! Cooling down... ${remaining--}s`
         );
         if (remaining < 0) clearInterval(timer);
     }, 1000);
-    
     await sleep(POST_GAME_WAIT);
     clearInterval(timer);
   }
