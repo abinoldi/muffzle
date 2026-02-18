@@ -1,0 +1,188 @@
+#!/data/data/com.termux/files/usr/bin/bash
+
+# =============================================
+# GOFILE INSTALLER (SDCARD / INTERNAL STORAGE VER)
+# VERSION: ZIP EDITION
+# =============================================
+
+# Konfigurasi
+TARGET_URL="https://gofile.io/d/OGGtb3"
+# Folder ini akan muncul di Internal Storage -> Download
+STORAGE_DIR="/sdcard/Download/Gofile-Installer" 
+ZIP_FILE="codexitil.zip"
+INSTALL_COUNT=7
+WT_TOKEN="4fd6sg89d7s6"
+
+# Warna
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+# =============================================
+# 1. CEK IZIN PENYIMPANAN (PENTING!)
+# =============================================
+setup_storage() {
+    echo -e "${BLUE}[INFO]${NC} Memeriksa akses penyimpanan..."
+    
+    # Cek apakah folder /sdcard bisa diakses
+    if ls /sdcard >/dev/null 2>&1; then
+        echo -e "${GREEN}[OK]${NC} Akses penyimpanan diizinkan."
+    else
+        echo -e "${RED}[!]${NC} Termux belum punya izin akses memori!"
+        echo -e "${YELLOW}Jendela popup akan muncul, pilih 'IZINKAN' / 'ALLOW'${NC}"
+        termux-setup-storage
+        sleep 3
+        
+        echo -e "${YELLOW}Tekan Enter jika sudah mengizinkan...${NC}"
+        read temp
+        
+        if ! ls /sdcard >/dev/null 2>&1; then
+            echo -e "${RED}[ERROR]${NC} Gagal akses memori. Script tidak bisa lanjut."
+            exit 1
+        fi
+    fi
+    
+    # Buat folder tujuan
+    if [[ ! -d "$STORAGE_DIR" ]]; then
+        mkdir -p "$STORAGE_DIR"
+        echo -e "${GREEN}[OK]${NC} Folder dibuat: $STORAGE_DIR"
+    fi
+}
+
+check_deps() {
+    local deps=("curl" "jq" "tsu" "unzip")
+    for dep in "${deps[@]}"; do
+        if ! command -v "$dep" &>/dev/null; then
+            echo -e "${BLUE}[INFO]${NC} Menginstall $dep..."
+            pkg install -y "$dep" >/dev/null 2>&1
+        fi
+    done
+}
+
+# =============================================
+# 2. LOGIC DOWNLOAD (PYTHON PORT)
+# =============================================
+
+get_account_token() {
+    local response=$(curl -s -X POST "https://api.gofile.io/accounts" \
+        -H "User-Agent: Mozilla/5.0" \
+        -H "Content-Type: application/json")
+    echo "$response" | jq -r '.data.token'
+}
+
+get_target_link() {
+    local token="$1"
+    local content_id=$(echo "$TARGET_URL" | grep -o '[^/]*$')
+    
+    # Menggunakan Header X-Website-Token (Anti-Limit)
+    local response=$(curl -s "https://api.gofile.io/contents/$content_id?cache=true" \
+        -H "Authorization: Bearer $token" \
+        -H "Cookie: accountToken=$token" \
+        -H "X-Website-Token: $WT_TOKEN" \
+        -H "User-Agent: Mozilla/5.0")
+        
+    local status=$(echo "$response" | jq -r '.status')
+    if [[ "$status" != "ok" ]]; then
+        echo -e "${RED}[ERR]${NC} API Error: $status" >&2
+        return 1
+    fi
+    
+    # Cari file zip (mengubah dari .rar ke .zip)
+    local link=$(echo "$response" | jq -r '.data.children | to_entries[] | .value | select(.name | endswith(".zip")) | .link' | head -n 1)
+    echo "$link"
+}
+
+# =============================================
+# 3. PROSES UTAMA
+# =============================================
+
+run_system() {
+    clear
+    check_deps
+    setup_storage # Pastikan folder ada di /sdcard
+    
+    cd "$STORAGE_DIR" || exit
+    
+    echo -e "${BLUE}[INFO]${NC} Lokasi Kerja: $STORAGE_DIR"
+    
+    # Hapus file lama biar bersih
+    rm -f *.zip *.apk
+    
+    # --- Download ---
+    local token=$(get_account_token)
+    if [[ -z "$token" || "$token" == "null" ]]; then
+        echo -e "${RED}[FAIL]${NC} Gagal koneksi ke Gofile."
+        exit 1
+    fi
+    
+    echo -e "${BLUE}[INFO]${NC} Mencari Link Download..."
+    local link=$(get_target_link "$token")
+    
+    if [[ -z "$link" || "$link" == "null" ]]; then
+        echo -e "${RED}[FAIL]${NC} Link tidak ditemukan otomatis."
+        echo -e "${YELLOW}Masukkan Link Manual:${NC} "
+        read link
+        if [[ -z "$link" ]]; then exit 1; fi
+    fi
+    
+    echo -e "${BLUE}[INFO]${NC} Mendownload ke Internal Storage..."
+    curl -L "$link" --progress-bar \
+        -H "Cookie: accountToken=$token" \
+        -H "User-Agent: Mozilla/5.0" \
+        -o "$ZIP_FILE"
+        
+    if [[ ! -f "$ZIP_FILE" ]]; then
+        echo -e "${RED}[FAIL]${NC} Download Gagal."
+        exit 1
+    fi
+    
+    # --- Extract ZIP ---
+    echo -e "${BLUE}[INFO]${NC} Mengekstrak file ZIP..."
+    
+    # Cek apakah file benar-benar ZIP
+    if file "$ZIP_FILE" | grep -qi "zip archive"; then
+        unzip -o "$ZIP_FILE" -d ./ >/dev/null 2>&1
+        if [[ $? -eq 0 ]]; then
+            echo -e "${GREEN}[OK]${NC} Ekstraksi ZIP berhasil."
+        else
+            echo -e "${RED}[FAIL]${NC} Gagal mengekstrak ZIP."
+            exit 1
+        fi
+    else
+        echo -e "${RED}[FAIL]${NC} File bukan format ZIP yang valid."
+        exit 1
+    fi
+    
+    # --- Install ---
+    local apks=($(ls *.apk 2>/dev/null | sort -V))
+    if [[ ${#apks[@]} -eq 0 ]]; then
+        echo -e "${RED}[FAIL]${NC} Tidak ada APK. Cek folder Download secara manual."
+        exit 1
+    fi
+    
+    echo -e "${GREEN}[OK]${NC} Ditemukan ${#apks[@]} APK."
+    echo -e "${YELLOW}[!]${NC} Meminta akses Root untuk install..."
+    
+    if ! sudo ls >/dev/null 2>&1; then
+        echo -e "${RED}[FAIL]${NC} Akses Root ditolak."
+        echo -e "${GREEN}[TIP]${NC} File sudah tersimpan di Folder Download/Gofile-Installer."
+        echo -e "${GREEN}[TIP]${NC} Silakan buka File Manager dan install manual."
+        exit 0
+    fi
+    
+    local limit=$(( ${#apks[@]} < INSTALL_COUNT ? ${#apks[@]} : INSTALL_COUNT ))
+    
+    for ((i=0; i<limit; i++)); do
+        echo -n "Installing ${apks[$i]}... "
+        # Menggunakan path absolut agar root bisa menemukannya
+        sudo pm install -r "$STORAGE_DIR/${apks[$i]}" >/dev/null 2>&1
+        if [[ $? -eq 0 ]]; then echo "OK"; else echo "GAGAL"; fi
+    done
+    
+    echo
+    echo -e "${GREEN}[SELESAI]${NC} File mentahan ada di: Internal/Download/Gofile-Installer"
+}
+
+run_system
