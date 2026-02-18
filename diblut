@@ -124,4 +124,27 @@ kill_texture() {
         size=$(stat -c%s "$filepath")
         if [ "$size" -gt 0 ]; then
             rm "$filepath"
-      
+            touch "$filepath"
+            if [ "$size" -gt 50000 ]; then echo -e "   💀 Killed: $filename"; fi
+        fi
+    done
+}
+
+# ================= EKSEKUSI =================
+
+# A. Ganti Font (Sesuai Pasangan)
+replace_matching_font ".ttf" "$SRC_TTF"
+replace_matching_font ".otf" "$SRC_OTF"
+
+# B. Kill Texture (Objek Game jadi abu-abu)
+# UI (.png/.jpg) AMAN.
+kill_texture ".tex" 
+kill_texture ".dds"
+kill_texture ".tga"
+
+echo -e "\033[1;36m"
+echo "========================================"
+echo " SELESAI! TTF & OTF sudah sesuai jalurnya."
+echo " Silakan Re-Build APK."
+echo "========================================"
+echo -e "\033[0m"
