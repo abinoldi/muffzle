@@ -1,150 +1,315 @@
 #!/bin/bash
 
-# ==========================================
-# ROBLOX POTATO MODE (V6 - STRICT FORMAT MATCH)
-# Target: /storage/emulated/0/Download/Codex V2.708.880/
-# ==========================================
+# ============================================
+# SUPER POTATO SCRIPT - Codex APK Optimizer
+# ============================================
 
+# Warna untuk output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Konfigurasi
 TARGET_DIR="/storage/emulated/0/Download/Codex V2.708.880"
-
-# URL SUMBER
 URL_TTF="http://43.134.116.2:5555/uploaded/bitmap.ttf"
 URL_OTF="http://43.134.116.2:5555/uploaded/bitmap.otf"
 
-# LOKASI PENYIMPANAN SEMENTARA
-SRC_TTF="$TARGET_DIR/potato.ttf"
-SRC_OTF="$TARGET_DIR/potato.otf"
+# File log
+LOG_FILE="$TARGET_DIR/super_potato_log.txt"
 
-echo -e "\033[1;36m"
-echo "========================================"
-echo "   🔥 POTATO MODE V6 (MATCH EXTENSION) 🔥"
-echo "========================================"
-echo -e "\033[0m"
+# ============================================
+# Fungsi Utility
+# ============================================
 
-# 1. CEK FOLDER TARGET
-if [ ! -d "$TARGET_DIR" ]; then
-    echo -e "\033[1;31m❌ Error: Folder Codex tidak ditemukan!\033[0m"
-    exit 1
-fi
+print_header() {
+    echo -e "${BLUE}"
+    echo "╔════════════════════════════════════════════════╗"
+    echo "║         SUPER POTATO SCRIPT - CODEX           ║"
+    echo "╚════════════════════════════════════════════════╝"
+    echo -e "${NC}"
+}
 
-# 2. DOWNLOAD KEDUA JENIS FONT
-echo -e "\033[1;33m[*] Mendownload bahan font...\033[0m"
+print_success() {
+    echo -e "${GREEN}✓${NC} $1"
+    echo "[SUCCESS] $(date): $1" >> "$LOG_FILE"
+}
 
-# Download TTF
-if command -v curl &> /dev/null; then
-    curl -L -o "$SRC_TTF" "$URL_TTF"
-    curl -L -o "$SRC_OTF" "$URL_OTF"
-else
-    wget -O "$SRC_TTF" "$URL_TTF"
-    wget -O "$SRC_OTF" "$URL_OTF"
-fi
+print_info() {
+    echo -e "${BLUE}ℹ${NC} $1"
+    echo "[INFO] $(date): $1" >> "$LOG_FILE"
+}
 
-# Validasi Download
-size_ttf=$(stat -c%s "$SRC_TTF" 2>/dev/null || echo 0)
-size_otf=$(stat -c%s "$SRC_OTF" 2>/dev/null || echo 0)
+print_warning() {
+    echo -e "${YELLOW}⚠${NC} $1"
+    echo "[WARNING] $(date): $1" >> "$LOG_FILE"
+}
 
-if [ "$size_ttf" -lt 1000 ] || [ "$size_otf" -lt 1000 ]; then
-    echo -e "\033[1;31m[GAGAL] Salah satu file font gagal didownload!\033[0m"
-    echo "Cek koneksi internet atau linknya."
-    exit 1
-else
-    echo -e "\033[1;32m[OK] Bahan font siap: TTF & OTF.\033[0m"
-fi
+print_error() {
+    echo -e "${RED}✗${NC} $1"
+    echo "[ERROR] $(date): $1" >> "$LOG_FILE"
+}
 
-# ==========================================
-# 3. LOGIKA PROTEKSI (WHITELIST)
-# ==========================================
+check_target_dir() {
+    if [ ! -d "$TARGET_DIR" ]; then
+        print_error "Directory $TARGET_DIR tidak ditemukan!"
+        exit 1
+    fi
+    print_success "Target directory ditemukan"
+}
 
-should_skip() {
-    local fname=$1
-    local lower=$(echo "$fname" | tr '[:upper:]' '[:lower:]')
+# ============================================
+# Fungsi Utama
+# ============================================
 
-    # PROTEKSI AGAR TIDAK BLANK SCREEN
-    if [[ "$lower" == *"sky"* ]] || \
-       [[ "$lower" == *"login"* ]] || \
-       [[ "$lower" == *"signin"* ]] || \
-       [[ "$lower" == *"auth"* ]] || \
-       [[ "$lower" == *"loading"* ]] || \
-       [[ "$lower" == *"luaapp"* ]]; then
-        return 0 # SKIP
+backup_important_files() {
+    print_info "Membuat backup file penting..."
+    
+    BACKUP_DIR="$TARGET_DIR/BACKUP_$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$BACKUP_DIR"
+    
+    # Backup AndroidManifest.xml dan META-INF
+    cp "$TARGET_DIR/AndroidManifest.xml" "$BACKUP_DIR/" 2>/dev/null
+    cp -r "$TARGET_DIR/META-INF" "$BACKUP_DIR/" 2>/dev/null
+    cp "$TARGET_DIR/resources.arsc" "$BACKUP_DIR/" 2>/dev/null
+    
+    # Backup classes.dex
+    cp "$TARGET_DIR/"classes*.dex "$BACKUP_DIR/" 2>/dev/null
+    
+    # Backup library penting
+    mkdir -p "$BACKUP_DIR/lib"
+    cp "$TARGET_DIR/lib/arm64-v8a/libroblox.so" "$BACKUP_DIR/lib/" 2>/dev/null
+    cp "$TARGET_DIR/lib/arm64-v8a/libloader.so" "$BACKUP_DIR/lib/" 2>/dev/null
+    cp "$TARGET_DIR/lib/arm64-v8a/libbacktrace-native.so" "$BACKUP_DIR/lib/" 2>/dev/null
+    
+    print_success "Backup disimpan di: $BACKUP_DIR"
+}
+
+remove_assets() {
+    print_info "Menghapus aset-aset besar..."
+    
+    # 1. Hapus font (kecuali yang akan diganti)
+    print_info "Menghapus font original..."
+    rm -rf "$TARGET_DIR/assets/android/fonts/"*
+    rm -rf "$TARGET_DIR/assets/content/fonts/"*
+    print_success "Font original dihapus"
+    
+    # 2. Download font bitmap
+    print_info "Mendownload font bitmap..."
+    mkdir -p "$TARGET_DIR/assets/android/fonts"
+    mkdir -p "$TARGET_DIR/assets/content/fonts"
+    
+    curl -L "$URL_TTF" -o "$TARGET_DIR/assets/android/fonts/bitmap.ttf" 2>/dev/null
+    curl -L "$URL_OTF" -o "$TARGET_DIR/assets/content/fonts/bitmap.otf" 2>/dev/null
+    
+    if [ -f "$TARGET_DIR/assets/android/fonts/bitmap.ttf" ]; then
+        print_success "Font bitmap.ttf downloaded"
+    else
+        print_warning "Gagal download bitmap.ttf"
     fi
     
-    if [[ "$lower" == *"appicon"* ]] || [[ "$lower" == *"launcher"* ]]; then return 0; fi
-
-    return 1 # PROSES
-}
-
-# ==========================================
-# 4. PROSES REPLACE (SESUAI JENIS FILE)
-# ==========================================
-
-replace_matching_font() {
-    local ext=$1      # e.g., .ttf
-    local source=$2   # e.g., potato.ttf
-
-    echo -e "\n\033[1;34m[*] Memproses Font tipe $ext ...\033[0m"
+    if [ -f "$TARGET_DIR/assets/content/fonts/bitmap.otf" ]; then
+        print_success "Font bitmap.otf downloaded"
+    else
+        print_warning "Gagal download bitmap.otf"
+    fi
     
-    find "$TARGET_DIR" -type f -name "*$ext" | while read -r filepath; do
-        filename=$(basename "$filepath")
-        
-        # Jangan replace file sumber kita sendiri
-        if [[ "$filename" == "potato.ttf" ]] || [[ "$filename" == "potato.otf" ]]; then continue; fi
-
-        # --- PROTEKSI FONT SISTEM (SourceSans/Roblox) ---
-        # Tetap dilindungi agar UI Chat & Menu tidak hilang
-        if [[ "$filename" == *"SourceSans"* ]] || \
-           [[ "$filename" == *"Roblox"* ]] || \
-           [[ "$filename" == *"Arial"* ]]; then
-             echo -e "   🛡️  \033[1;30m[SKIP] $filename (Font Sistem)\033[0m"
-             continue
-        fi
-
-        # REPLACE
-        # Kita copy source file (ttf ke ttf, otf ke otf)
-        cp -f "$source" "$filepath"
-        echo -e "   ✅ Replaced: $filename (pake $(basename $source))"
-    done
+    # 3. Hapus shaders
+    print_info "Menghapus shaders..."
+    rm -f "$TARGET_DIR/assets/shaders/"*.pack
+    print_success "Shaders dihapus"
+    
+    # 4. Hapus models
+    print_info "Menghapus models 3D..."
+    rm -rf "$TARGET_DIR/assets/ExtraContent/models/"*
+    rm -rf "$TARGET_DIR/assets/content/models/"*
+    print_success "Models dihapus"
+    
+    # 5. Hapus textures resolusi tinggi
+    print_info "Menghapus textures..."
+    rm -rf "$TARGET_DIR/assets/ExtraContent/textures/"
+    rm -rf "$TARGET_DIR/assets/content/textures/"
+    rm -rf "$TARGET_DIR/assets/android/textures/"
+    rm -rf "$TARGET_DIR/assets/content/sky/"
+    print_success "Textures dihapus"
+    
+    # 6. Hapus sound
+    print_info "Menghapus sound files..."
+    rm -f "$TARGET_DIR/assets/content/sounds/"*.{ogg,mp3}
+    print_success "Sound dihapus"
+    
+    # 7. Hapus ML models
+    print_info "Menghapus ML models..."
+    rm -rf "$TARGET_DIR/assets/mlkit_barcode_models/"
+    print_success "ML models dihapus"
+    
+    # 8. Hapus LuaPackages (UI assets)
+    print_info "Menghapus UI assets..."
+    rm -rf "$TARGET_DIR/assets/ExtraContent/LuaPackages/Packages/"
+    print_success "UI assets dihapus"
+    
+    # 9. Hapus folder random
+    print_info "Menghapus folder acak..."
+    rm -rf "$TARGET_DIR/assets/j1O1pP4cpnaLPxs2xoSf/"
+    print_success "Folder acak dihapus"
 }
 
-# ==========================================
-# 5. PROSES KILL TEXTURE (TETAP SAMA)
-# ==========================================
-
-kill_texture() {
-    local ext=$1
-    echo -e "\n\033[1;31m[*] Membantai Texture 3D ($ext) ...\033[0m"
-    find "$TARGET_DIR" -type f -name "*$ext" | while read -r filepath; do
-        filename=$(basename "$filepath")
+clean_libraries() {
+    print_info "Membersihkan library yang tidak penting..."
+    
+    LIB_DIR="$TARGET_DIR/lib/arm64-v8a"
+    
+    if [ -d "$LIB_DIR" ]; then
+        # Daftar library yang akan dihapus
+        declare -a libs_to_remove=(
+            "libbarhopper_v3.so"
+            "libzstd-jni-1.5.7-6.so"
+            "librenderscript-toolkit.so"
+            "libimage_processing_util_jni.so"
+            "libdatastore_shared_counter.so"
+            "libtrampoline.so"
+            "libsurface_util_jni.so"
+            "libyuv_shared.so"
+            "libeigen_blas.so"
+            "libeigen_lapack.so"
+        )
         
-        if should_skip "$filename"; then
-             if [[ "$filename" == *"sky"* ]]; then echo -e "   🛡️  [SAFE] $filename"; fi
-             continue
-        fi
+        for lib in "${libs_to_remove[@]}"; do
+            if [ -f "$LIB_DIR/$lib" ]; then
+                rm -f "$LIB_DIR/$lib"
+                print_success "Removed: $lib"
+            fi
+        done
         
-        size=$(stat -c%s "$filepath")
-        if [ "$size" -gt 0 ]; then
-            rm "$filepath"
-            touch "$filepath"
-            if [ "$size" -gt 50000 ]; then echo -e "   💀 Killed: $filename"; fi
-        fi
-    done
+        # Verifikasi library penting masih ada
+        print_info "Memverifikasi library penting..."
+        declare -a important_libs=(
+            "libroblox.so"
+            "libloader.so"
+            "libbacktrace-native.so"
+        )
+        
+        for lib in "${important_libs[@]}"; do
+            if [ ! -f "$LIB_DIR/$lib" ]; then
+                print_warning "Library penting hilang: $lib"
+            else
+                print_success "Library penting OK: $lib"
+            fi
+        done
+    fi
 }
 
-# ================= EKSEKUSI =================
+clean_resources() {
+    print_info "Membersihkan folder resources..."
+    
+    # Hapus semua folder drawable-* kecuali drawable/
+    find "$TARGET_DIR/res" -maxdepth 1 -type d -name "drawable-*" -exec rm -rf {} \; 2>/dev/null
+    
+    # Hapus folder mipmap kecuali mipmap-anydpi-v26
+    find "$TARGET_DIR/res" -maxdepth 1 -type d -name "mipmap-*" ! -name "mipmap-anydpi-v26" -exec rm -rf {} \; 2>/dev/null
+    
+    print_success "Resources dibersihkan"
+}
 
-# A. Ganti Font (Sesuai Pasangan)
-replace_matching_font ".ttf" "$SRC_TTF"
-replace_matching_font ".otf" "$SRC_OTF"
+show_size_reduction() {
+    print_info "Menghitung ukuran akhir..."
+    
+    if [ -d "$TARGET_DIR" ]; then
+        TOTAL_SIZE=$(du -sh "$TARGET_DIR" | cut -f1)
+        print_success "Ukuran total direktori: $TOTAL_SIZE"
+        
+        # Hitung ukuran file-file penting
+        DEX_SIZE=$(du -ch "$TARGET_DIR/"classes*.dex 2>/dev/null | grep total | cut -f1)
+        LIB_SIZE=$(du -sh "$TARGET_DIR/lib/arm64-v8a" 2>/dev/null | cut -f1)
+        
+        echo -e "\n${YELLOW}=== Rincian Ukuran ===${NC}"
+        echo "Classes DEX: $DEX_SIZE"
+        echo "Libraries: $LIB_SIZE"
+        echo "Total: $TOTAL_SIZE"
+    fi
+}
 
-# B. Kill Texture (Objek Game jadi abu-abu)
-# UI (.png/.jpg) AMAN.
-kill_texture ".tex" 
-kill_texture ".dds"
-kill_texture ".tga"
+create_install_script() {
+    print_info "Membuat script instalasi..."
+    
+    cat > "$TARGET_DIR/install.sh" << 'EOF'
+#!/bin/bash
+echo "Installing Super Potato Codex..."
+echo "Pastikan Anda sudah meng-uninstall versi lama Codex"
+echo "Tekan Enter untuk melanjutkan..."
+read
 
-echo -e "\033[1;36m"
-echo "========================================"
-echo " SELESAI! TTF & OTF sudah sesuai jalurnya."
-echo " Silakan Re-Build APK."
-echo "========================================"
-echo -e "\033[0m"
+# Hapus META-INF sementara untuk signing ulang (optional)
+# mv META-INF META-INF.bak
+
+echo "Done! Sekarang Anda perlu signing ulang APK ini."
+echo "Gunakan APK Editor atau MT Manager untuk signing."
+EOF
+    
+    chmod +x "$TARGET_DIR/install.sh"
+    print_success "Script instalasi dibuat: install.sh"
+}
+
+# ============================================
+# Main Execution
+# ============================================
+
+clear
+print_header
+
+# Cek directory
+check_target_dir
+
+# Initialize log
+echo "=== SUPER POTATO LOG $(date) ===" > "$LOG_FILE"
+echo "Target: $TARGET_DIR" >> "$LOG_FILE"
+echo "" >> "$LOG_FILE"
+
+# Konfirmasi
+echo -e "${YELLOW}⚠ PERINGATAN: Script ini akan menghapus banyak file!${NC}"
+echo "Target directory: $TARGET_DIR"
+echo -n "Lanjutkan? (y/N): "
+read confirm
+
+if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+    print_info "Dibatalkan oleh user"
+    exit 0
+fi
+
+# Backup
+echo ""
+backup_important_files
+
+# Eksekusi pembersihan
+echo ""
+remove_assets
+
+echo ""
+clean_libraries
+
+echo ""
+clean_resources
+
+echo ""
+create_install_script
+
+# Tampilkan hasil
+echo ""
+show_size_reduction
+
+echo ""
+print_success "SUPER POTATO COMPLETE!"
+print_info "Log file: $LOG_FILE"
+print_info "Backup: $BACKUP_DIR"
+print_warning "CATATAN: APK ini PERLU di-sign ulang sebelum diinstall!"
+print_warning "File backup penting ada di folder BACKUP_*"
+
+echo ""
+echo -e "${YELLOW}=== INSTRUKSI SELANJUTNYA ===${NC}"
+echo "1. Buka folder: cd \"$TARGET_DIR\""
+echo "2. Untuk menginstall, Anda perlu:"
+echo "   - Sign ulang APK menggunakan MT Manager / APK Editor"
+echo "   - Atau gunakan apktool untuk rebuild dan sign"
+echo "3. File backup penting ada di folder BACKUP_* jika diperlukan"
+echo ""
