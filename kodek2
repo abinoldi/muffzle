@@ -125,4 +125,91 @@ run_system() {
     local link=$(get_target_link "$token")
     
     if [[ -z "$link" || "$link" == "null" ]]; then
-        echo -e "${RED}[FAIL]${NC} Link t
+        echo -e "${RED}[FAIL]${NC} Link tidak ditemukan otomatis."
+        echo -e "${YELLOW}Masukkan Link Manual:${NC} "
+        read link
+        if [[ -z "$link" ]]; then exit 1; fi
+    fi
+    
+    echo -e "${BLUE}[INFO]${NC} Mendownload ke Internal Storage..."
+    curl -L "$link" --progress-bar \
+        -H "Cookie: accountToken=$token" \
+        -H "User-Agent: Mozilla/5.0" \
+        -o "$ZIP_FILE"
+        
+    if [[ ! -f "$ZIP_FILE" ]]; then
+        echo -e "${RED}[FAIL]${NC} Download Gagal."
+        exit 1
+    fi
+    
+    # --- Extract ZIP ---
+    echo -e "${BLUE}[INFO]${NC} Mengekstrak file ZIP..."
+    
+    # Cek apakah file ZIP valid (pake unzip -t aja biar aman)
+    if unzip -t "$ZIP_FILE" >/dev/null 2>&1; then
+        unzip -o "$ZIP_FILE" -d ./ >/dev/null 2>&1
+        if [[ $? -eq 0 ]]; then
+            echo -e "${GREEN}[OK]${NC} Ekstraksi ZIP berhasil."
+        else
+            echo -e "${RED}[FAIL]${NC} Gagal mengekstrak ZIP."
+            exit 1
+        fi
+    else
+        echo -e "${RED}[FAIL]${NC} File ZIP corrupt atau tidak valid."
+        exit 1
+    fi
+    
+    # --- Cari semua APK ---
+    local apks=($(ls *.apk 2>/dev/null | sort -V))
+    local total_apks=${#apks[@]}
+    
+    if [[ $total_apks -eq 0 ]]; then
+        echo -e "${RED}[FAIL]${NC} Tidak ada APK ditemukan."
+        echo -e "${YELLOW}Isi folder:${NC}"
+        ls -la
+        exit 1
+    fi
+    
+    echo -e "${GREEN}[OK]${NC} Ditemukan ${total_apks} APK:"
+    for apk in "${apks[@]}"; do
+        echo "   - $apk"
+    done
+    echo ""
+    
+    # --- Install SEMUA APK ---
+    echo -e "${YELLOW}[!]${NC} Meminta akses Root untuk install ${total_apks} APK..."
+    
+    if ! command -v sudo &>/dev/null || ! sudo -n true 2>/dev/null; then
+        echo -e "${RED}[FAIL]${NC} Akses Root tidak tersedia."
+        echo -e "${GREEN}[TIP]${NC} File sudah tersimpan di: $STORAGE_DIR"
+        echo -e "${GREEN}[TIP]${NC} Silakan install manual menggunakan File Manager."
+        exit 0
+    fi
+    
+    echo -e "${BLUE}[INFO]${NC} Mulai install ${total_apks} APK..."
+    echo "----------------------------------------"
+    
+    local success=0
+    local failed=0
+    
+    for apk in "${apks[@]}"; do
+        echo -n "📦 Installing $apk... "
+        if sudo pm install -r "$STORAGE_DIR/$apk" >/dev/null 2>&1; then
+            echo -e "${GREEN}✓ BERHASIL${NC}"
+            ((success++))
+        else
+            echo -e "${RED}✗ GAGAL${NC}"
+            ((failed++))
+        fi
+    done
+    
+    echo "----------------------------------------"
+    echo -e "${GREEN}✅ Installasi selesai!${NC}"
+    echo -e "   Berhasil: ${GREEN}${success}${NC} APK"
+    echo -e "   Gagal: ${RED}${failed}${NC} APK"
+    echo ""
+    echo -e "${BLUE}[INFO]${NC} File ZIP dan APK tersimpan di:"
+    echo -e "   ${YELLOW}$STORAGE_DIR${NC}"
+}
+
+run_system
