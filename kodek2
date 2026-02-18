@@ -2,7 +2,7 @@
 
 # =============================================
 # GOFILE INSTALLER (SDCARD / INTERNAL STORAGE VER)
-# VERSION: ZIP EDITION
+# VERSION: ZIP EDITION (INSTALL ALL APKS)
 # =============================================
 
 # Konfigurasi
@@ -10,7 +10,6 @@ TARGET_URL="https://gofile.io/d/OGGtb3"
 # Folder ini akan muncul di Internal Storage -> Download
 STORAGE_DIR="/sdcard/Download/Gofile-Installer" 
 ZIP_FILE="codexitil.zip"
-INSTALL_COUNT=7
 WT_TOKEN="4fd6sg89d7s6"
 
 # Warna
@@ -33,7 +32,7 @@ setup_storage() {
         echo -e "${RED}[!]${NC} Termux belum punya izin akses memori!"
         echo -e "${YELLOW}Jendela popup akan muncul, pilih 'IZINKAN' / 'ALLOW'${NC}"
         termux-setup-storage
-        sleep 3
+        sleep 5
         
         echo -e "${YELLOW}Tekan Enter jika sudah mengizinkan...${NC}"
         read temp
@@ -52,7 +51,7 @@ setup_storage() {
 }
 
 check_deps() {
-    local deps=("curl" "jq" "tsu" "unzip")
+    local deps=("curl" "jq" "tsu" "unzip" "file")
     for dep in "${deps[@]}"; do
         if ! command -v "$dep" &>/dev/null; then
             echo -e "${BLUE}[INFO]${NC} Menginstall $dep..."
@@ -89,7 +88,7 @@ get_target_link() {
         return 1
     fi
     
-    # Cari file zip (mengubah dari .rar ke .zip)
+    # Cari file zip
     local link=$(echo "$response" | jq -r '.data.children | to_entries[] | .value | select(.name | endswith(".zip")) | .link' | head -n 1)
     echo "$link"
 }
@@ -100,8 +99,12 @@ get_target_link() {
 
 run_system() {
     clear
+    echo -e "${BLUE}================================${NC}"
+    echo -e "${GREEN}GOFILE INSTALLER - INSTALL ALL APKS${NC}"
+    echo -e "${BLUE}================================${NC}\n"
+    
     check_deps
-    setup_storage # Pastikan folder ada di /sdcard
+    setup_storage
     
     cd "$STORAGE_DIR" || exit
     
@@ -111,6 +114,7 @@ run_system() {
     rm -f *.zip *.apk
     
     # --- Download ---
+    echo -e "${BLUE}[INFO]${NC} Mendapatkan token..."
     local token=$(get_account_token)
     if [[ -z "$token" || "$token" == "null" ]]; then
         echo -e "${RED}[FAIL]${NC} Gagal koneksi ke Gofile."
@@ -121,68 +125,4 @@ run_system() {
     local link=$(get_target_link "$token")
     
     if [[ -z "$link" || "$link" == "null" ]]; then
-        echo -e "${RED}[FAIL]${NC} Link tidak ditemukan otomatis."
-        echo -e "${YELLOW}Masukkan Link Manual:${NC} "
-        read link
-        if [[ -z "$link" ]]; then exit 1; fi
-    fi
-    
-    echo -e "${BLUE}[INFO]${NC} Mendownload ke Internal Storage..."
-    curl -L "$link" --progress-bar \
-        -H "Cookie: accountToken=$token" \
-        -H "User-Agent: Mozilla/5.0" \
-        -o "$ZIP_FILE"
-        
-    if [[ ! -f "$ZIP_FILE" ]]; then
-        echo -e "${RED}[FAIL]${NC} Download Gagal."
-        exit 1
-    fi
-    
-    # --- Extract ZIP ---
-    echo -e "${BLUE}[INFO]${NC} Mengekstrak file ZIP..."
-    
-    # Cek apakah file benar-benar ZIP
-    if file "$ZIP_FILE" | grep -qi "zip archive"; then
-        unzip -o "$ZIP_FILE" -d ./ >/dev/null 2>&1
-        if [[ $? -eq 0 ]]; then
-            echo -e "${GREEN}[OK]${NC} Ekstraksi ZIP berhasil."
-        else
-            echo -e "${RED}[FAIL]${NC} Gagal mengekstrak ZIP."
-            exit 1
-        fi
-    else
-        echo -e "${RED}[FAIL]${NC} File bukan format ZIP yang valid."
-        exit 1
-    fi
-    
-    # --- Install ---
-    local apks=($(ls *.apk 2>/dev/null | sort -V))
-    if [[ ${#apks[@]} -eq 0 ]]; then
-        echo -e "${RED}[FAIL]${NC} Tidak ada APK. Cek folder Download secara manual."
-        exit 1
-    fi
-    
-    echo -e "${GREEN}[OK]${NC} Ditemukan ${#apks[@]} APK."
-    echo -e "${YELLOW}[!]${NC} Meminta akses Root untuk install..."
-    
-    if ! sudo ls >/dev/null 2>&1; then
-        echo -e "${RED}[FAIL]${NC} Akses Root ditolak."
-        echo -e "${GREEN}[TIP]${NC} File sudah tersimpan di Folder Download/Gofile-Installer."
-        echo -e "${GREEN}[TIP]${NC} Silakan buka File Manager dan install manual."
-        exit 0
-    fi
-    
-    local limit=$(( ${#apks[@]} < INSTALL_COUNT ? ${#apks[@]} : INSTALL_COUNT ))
-    
-    for ((i=0; i<limit; i++)); do
-        echo -n "Installing ${apks[$i]}... "
-        # Menggunakan path absolut agar root bisa menemukannya
-        sudo pm install -r "$STORAGE_DIR/${apks[$i]}" >/dev/null 2>&1
-        if [[ $? -eq 0 ]]; then echo "OK"; else echo "GAGAL"; fi
-    done
-    
-    echo
-    echo -e "${GREEN}[SELESAI]${NC} File mentahan ada di: Internal/Download/Gofile-Installer"
-}
-
-run_system
+        echo -e "${RED}[FAIL]${NC} Link t
