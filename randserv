@@ -12,10 +12,10 @@ const PLACE_ID = "121864768012064";
 // STATUS MONITORING (DIMATIKAN UNTUK SEKALI JALAN)
 const CHECK_SERVER_PRESENCE = false; 
 const AUTO_RECONNECT = false;     
-const AUTO_RANDOM_CODE = false; 
+const AUTO_RANDOM_CODE = false;
 
 // --- MEMORY SETTINGS ---
-const MEMORY_CLEAR_INTERVAL = 900; // Tidak terlalu berpengaruh karena script langsung exit
+const MEMORY_CLEAR_INTERVAL = 900; 
 
 // --- GRID SETTINGS (XML) ---
 const GRID_COLS = 3;
@@ -26,7 +26,7 @@ const GAP_Y = 60;
 
 // --- TIMING ---
 const CHECK_INTERVAL = 60;
-const POST_GAME_WAIT = 15000; // Dikurangi jadi 15 detik agar tidak menunggu terlalu lama (opsional)
+const POST_GAME_WAIT = 15000;
 
 function ensurePackage(pkg) {
   try { 
@@ -61,11 +61,11 @@ function initSystem() {
       process.exit(0);
     }
     try { execSync("termux-wake-lock"); } catch {}
-  } catch (e) { process.exit(1);
-  }
+  } catch (e) { process.exit(1); }
 }
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 const ask = (q) => new Promise(r => {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   rl.question(q, (ans) => { rl.close(); r(ans); });
@@ -204,10 +204,7 @@ function renderDashboard(cleanCode, statusMessage) {
   const stats = getSystemStats();
   console.log(`📱 SYSTEM: CPU ${stats.cpu} | RAM ${stats.ram} | UP ${stats.uptime}`);
   console.log(`📏 MODE: XML GRID (${GRID_COLS} cols) | GAP Y: ${GAP_Y}px`);
-  
-  // Karena mode sekali jalan, status monitoring di hardcode
   console.log(`📊 STATUS: ${statusMessage} | Mode: ONE-SHOT (No Loop) | Code: ${cleanCode}`);
-  
   const termWidth = process.stdout.columns || 80;
   const safeWidth = Math.max(40, termWidth - 8); 
 
@@ -216,13 +213,11 @@ function renderDashboard(cleanCode, statusMessage) {
   const wState = Math.floor(safeWidth * 0.15);
   const wStatus = Math.floor(safeWidth * 0.20);
   const wAction = Math.max(5, safeWidth - (wPkg + wUser + wState + wStatus));
-  
   const table = new Table({ 
       head: ['Pkg', 'User', 'State', 'Status', 'Action'], 
       colWidths: [wPkg, wUser, wState, wStatus, wAction],
       wordWrap: true 
   });
-  
   Object.keys(accountStates).sort().forEach(pkg => {
     const s = accountStates[pkg];
     table.push([
@@ -234,6 +229,16 @@ function renderDashboard(cleanCode, statusMessage) {
     ]);
   });
   console.log(table.toString());
+}
+
+// --- FUNGSI BARU: CEK PID ---
+function isAppRunning(pkg) {
+  try {
+    const output = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
+    return output.length > 0;
+  } catch (e) {
+    return false;
+  }
 }
 
 async function main() {
@@ -291,7 +296,6 @@ async function main() {
   if (!AUTO_RANDOM_CODE) {
     const argIndex = process.argv.indexOf("-server");
     let selectedIdx = -1;
-
     if (argIndex !== -1 && process.argv[argIndex + 1]) {
         selectedIdx = parseInt(process.argv[argIndex + 1]) - 1;
     }
@@ -315,59 +319,64 @@ async function main() {
   }
 
   autoArrangeXML(accounts.map(a => a.pkg));
-  
+
   // --- LAUNCHING ---
   console.log("\n🚀 Launching valid instances...");
   for (let i = 0; i < accounts.length; i++) {
     const acc = accounts[i];
-    stopPackage(acc.pkg);
     
     let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
     if(currentCode.includes("linkCode=")) {
         currentCode = currentCode.split("linkCode=")[1].split("&")[0];
     }
     const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
-    await launchPackage(acc.pkg, finalLaunchUrl);
     
-    lastRestartMap[acc.pkg] = Date.now();
-    accountStates[acc.pkg].isRunning = true;
-    accountStates[acc.pkg].serverStatus = "Joining...";
-    
-    // --- WAIT FOR IN-GAME (Tetap dipertahankan agar tidak crash karena launch terlalu cepat) ---
-    let inGame = false;
-    const startTime = Date.now();
-    // Timeout 60 detik agar tidak stuck selamanya jika error
-    while (!inGame && (Date.now() - startTime) < 60000) {
-      renderDashboard(
-          AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-          `⏳ ${acc.username} Joining... (${Math.floor((Date.now() - startTime)/1000)}s)`
-      );
+    let isStable = false;
+
+    // Terus ulangi sampai aplikasi stabil berjalan selama 60 detik
+    while (!isStable) {
+      stopPackage(acc.pkg); // Pastikan force-stop agar mulai dalam kondisi bersih
+      await launchPackage(acc.pkg, finalLaunchUrl);
       
-      const status = await getSinglePresence(acc.userId, acc.cookie);
-      accountStates[acc.pkg].serverStatus = status;
+      lastRestartMap[acc.pkg] = Date.now();
+      accountStates[acc.pkg].isRunning = true;
+      accountStates[acc.pkg].serverStatus = "Launching...";
+      
+      let crashed = false;
 
-      if (status === "In Game 🎮") {
-        inGame = true;
-      } else {
-        await sleep(5000);
-      }
-    }
-
-    // --- STABILIZATION WAIT ---
-    accountStates[acc.pkg].serverStatus = "In Game 🎮";
-    let remaining = POST_GAME_WAIT / 1000;
-    
-    // Hanya tunggu sebentar untuk memberi jeda antar akun
-    const timer = setInterval(() => {
+      // Pengecekan per detik selama 1 menit (60 detik)
+      for (let sec = 1; sec <= 60; sec++) {
         renderDashboard(
             AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-            `✅ ${acc.username} In Game! Cooling down... ${remaining--}s`
+            `⏳ ${acc.username} Stabilizing... (${sec}/60s)`
         );
-        if (remaining < 0) clearInterval(timer);
-    }, 1000);
-    
-    await sleep(POST_GAME_WAIT);
-    clearInterval(timer);
+
+        await sleep(1000); // Tunggu 1 detik
+
+        // Cek apakah aplikasi masih hidup
+        if (!isAppRunning(acc.pkg)) {
+            accountStates[acc.pkg].serverStatus = "Force Close!";
+            renderDashboard(
+                AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+                `⚠️ ${acc.username} Force Close di detik ${sec}! Membuka ulang...`
+            );
+            crashed = true;
+            await sleep(3000); // Jeda 3 detik sebelum mencoba membuka ulang aplikasi
+            break; // Keluar dari loop 60 detik, kembali ke awal 'while (!isStable)'
+        }
+      }
+
+      // Jika loop 60 detik selesai dan status tidak crash, berarti stabil
+      if (!crashed) {
+        accountStates[acc.pkg].serverStatus = "In Game 🎮 (Stable)";
+        renderDashboard(
+            AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+            `✅ ${acc.username} Stabil selama 1 menit! Lanjut akun berikutnya.`
+        );
+        isStable = true; 
+        await sleep(2000); // Jeda sebentar sebelum pindah memproses akun selanjutnya
+      }
+    }
   }
 
   console.log("\n🧹 Performing Final Memory Release...");
