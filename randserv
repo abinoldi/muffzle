@@ -21,9 +21,10 @@ const START_OFFSET_Y = 50;
 const GAP_X = 5;            
 const GAP_Y = 60;
 
-// --- TIMING ---
+// --- TIMING & RETRY ---
 const CHECK_INTERVAL = 60;
 const POST_GAME_WAIT = 15000;
+const MAX_FINAL_RETRIES = 3; // Batas maksimal mencoba ulang di fase akhir agar tidak infinite loop
 
 function ensurePackage(pkg) {
   try { require.resolve(pkg); } 
@@ -44,7 +45,7 @@ const SQLITE_PATH = `${TERMUX_PREFIX}/sqlite3`;
 let lastRestartMap = {};
 let accountStates = {};
 
-// --- FUNGSI BARU: PERFORMANCE BOOSTER ---
+// --- PERFORMANCE BOOSTER ---
 function applyPerformanceTweaks() {
   console.log("\n🚀 Menerapkan Tweak Performa (CPU, Thermal, UI)...");
   try {
@@ -74,7 +75,7 @@ function applyPerformanceTweaks() {
   }
 }
 
-// --- FUNGSI BARU: RESTORE SYSTEM PADA SAAT EXIT ---
+// --- RESTORE SYSTEM PADA SAAT EXIT ---
 function restoreSystemSettings() {
   console.log("\n♻️ Mengembalikan Pengaturan Sistem (Pendingin & Animasi)...");
   try {
@@ -93,7 +94,6 @@ function restoreSystemSettings() {
   } catch (e) {}
 }
 
-// Menangani penutupan paksa via CTRL+C agar sistem tetap direstore
 process.on('SIGINT', () => {
   restoreSystemSettings();
   process.exit(0);
@@ -182,8 +182,6 @@ function autoArrangeXML(packages) {
       sed -i 's|app_cloner_current_window_top\\" value=\\"[0-9]*|app_cloner_current_window_top\\" value=\\"${top}|' ${prefsFile};
       sed -i 's|app_cloner_current_window_right\\" value=\\"[0-9]*|app_cloner_current_window_right\\" value=\\"${right}|' ${prefsFile};
       sed -i 's|app_cloner_current_window_bottom\\" value=\\"[0-9]*|app_cloner_current_window_bottom\\" value=\\"${bottom}|' ${prefsFile};
-      
-      # TAMBAHAN: Paksa grafik kerendah (Level 1)
       sed -i 's|<int name=\\"GraphicsQualityLevel\\" value=\\".*\\" />|<int name=\\"GraphicsQualityLevel\\" value=\\"1\\" />|g' ${prefsFile};
       chmod 660 ${prefsFile}
     "`;
@@ -334,7 +332,8 @@ async function main() {
 
   autoArrangeXML(accounts.map(a => a.pkg));
 
-  console.log("\n🚀 Launching valid instances...");
+  // --- FASE 1: PELUNCURAN BERURUTAN ---
+  console.log("\n🚀 Launching valid instances (Fase 1)...");
   for (let i = 0; i < accounts.length; i++) {
     const acc = accounts[i];
     
@@ -348,8 +347,6 @@ async function main() {
 
     while (!isStable) {
       stopPackage(acc.pkg); 
-      
-      // Clear RAM sebelum membuka aplikasi baru (Sangat penting untuk mencegah force close berjamaah)
       releaseMemory();
       await sleep(1500); 
 
@@ -361,6 +358,7 @@ async function main() {
       
       let crashed = false;
 
+      // Tunggu stabil selama 60 detik
       for (let sec = 1; sec <= 60; sec++) {
         renderDashboard(
             AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
@@ -393,11 +391,77 @@ async function main() {
     }
   }
 
+  // --- FASE 2: PENGECEKAN AKHIR KESELURUHAN (FINAL CHECK) ---
+  let allRunning = false;
+  let retryCount = 0;
+
+  while (!allRunning && retryCount < MAX_FINAL_RETRIES) {
+    allRunning = true;
+    
+    for (let i = 0; i < accounts.length; i++) {
+      const acc = accounts[i];
+      
+      // Jika ditemukan aplikasi yang mati di latar belakang
+      if (!isAppRunning(acc.pkg)) {
+        allRunning = false;
+        accountStates[acc.pkg].serverStatus = "Re-opening...";
+        renderDashboard(
+            AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+            `🔍 Pengecekan Akhir: ${acc.username} Force Close! Membuka ulang...`
+        );
+        
+        stopPackage(acc.pkg);
+        releaseMemory();
+        await sleep(1500);
+
+        let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
+        if(currentCode.includes("linkCode=")) {
+            currentCode = currentCode.split("linkCode=")[1].split("&")[0];
+        }
+        const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
+        
+        await launchPackage(acc.pkg, finalLaunchUrl);
+        
+        // Beri waktu 20 detik agar aplikasi baru ini masuk ke game
+        for(let w = 1; w <= 20; w++) {
+           renderDashboard(
+              AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+              `⏳ Menunggu ${acc.username} re-open... (${w}/20s)`
+           );
+           await sleep(1000);
+        }
+        accountStates[acc.pkg].serverStatus = "In Game 🎮 (Stable)";
+      }
+    }
+
+    if (!allRunning) {
+      retryCount++;
+      if (retryCount < MAX_FINAL_RETRIES) {
+        renderDashboard(
+            AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+            `🔄 Mengulang pengecekan seluruh aplikasi (Percobaan ke-${retryCount})...`
+        );
+        await sleep(3000);
+      }
+    }
+  }
+
+  // --- KESIMPULAN ---
+  renderDashboard(
+      AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+      allRunning ? "✅ SEMUA APLIKASI BERJALAN BERSAMAAN!" : `⚠️ Selesai. Beberapa app gagal karena limit RAM.`
+  );
+
   console.log("\n🧹 Performing Final Memory Release...");
   releaseMemory();
   restoreSystemSettings();
   
-  console.log("\n✅ [DONE] Semua akun telah diluncurkan.");
+  if (allRunning) {
+      console.log("\n🎉 [SUKSES] Seluruh akun berhasil diluncurkan dan bertahan.");
+  } else {
+      console.log("\n⚠️ [INFO] Limit device tercapai. Beberapa akun dimatikan otomatis oleh OS Android.");
+  }
+  
   console.log("👋 Script exiting (One-Shot Mode).");
   process.exit(0);
 }
