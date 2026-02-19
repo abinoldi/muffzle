@@ -6,7 +6,7 @@ const readline = require("readline");
 const os = require("os");
 
 // --- CONFIGURATION ---
-const MSRV_URL = "https://ghostbin.axel.org/paste/ohdym/ra";
+const MSRV_URL = "https://ghostbin.axel.org/paste/ohdym/raw";
 const PLACE_ID = "121864768012064";
 
 // STATUS MONITORING
