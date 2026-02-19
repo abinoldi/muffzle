@@ -9,13 +9,10 @@ const os = require("os");
 const MSRV_URL = "https://ghostbin.axel.org/paste/nk4fh/raw";
 const PLACE_ID = "121864768012064";
 
-// STATUS MONITORING (DIMATIKAN UNTUK SEKALI JALAN)
+// STATUS MONITORING
 const CHECK_SERVER_PRESENCE = false; 
 const AUTO_RECONNECT = false;     
 const AUTO_RANDOM_CODE = false;
-
-// --- MEMORY SETTINGS ---
-const MEMORY_CLEAR_INTERVAL = 900; 
 
 // --- GRID SETTINGS (XML) ---
 const GRID_COLS = 3;
@@ -29,14 +26,10 @@ const CHECK_INTERVAL = 60;
 const POST_GAME_WAIT = 15000;
 
 function ensurePackage(pkg) {
-  try { 
-    require.resolve(pkg);
-  } catch {
-    try { 
-      execSync(`npm install ${pkg}`, { stdio: "inherit" });
-    } catch (e) { 
-      process.exit(1);
-    }
+  try { require.resolve(pkg); } 
+  catch {
+    try { execSync(`npm install ${pkg}`, { stdio: "inherit" }); } 
+    catch (e) { process.exit(1); }
   }
 }
 ["axios", "cli-table3"].forEach(ensurePackage);
@@ -50,6 +43,61 @@ const SQLITE_PATH = `${TERMUX_PREFIX}/sqlite3`;
 
 let lastRestartMap = {};
 let accountStates = {};
+
+// --- FUNGSI BARU: PERFORMANCE BOOSTER ---
+function applyPerformanceTweaks() {
+  console.log("\n🚀 Menerapkan Tweak Performa (CPU, Thermal, UI)...");
+  try {
+      const tweaksCmd = `
+          for i in {0..7}; do
+              echo 1 > /sys/devices/system/cpu/cpu$i/online 2>/dev/null;
+              echo performance > /sys/devices/system/cpu/cpu$i/cpufreq/scaling_governor 2>/dev/null;
+          done;
+          stop thermal-engine 2>/dev/null;
+          stop thermald 2>/dev/null;
+          killall -9 thermal-engine thermald 2>/dev/null;
+          for tz in /sys/class/thermal/thermal_zone*/trip_point_*_temp; do
+              [ -f "$tz" ] && echo 99999 > "$tz" 2>/dev/null;
+          done;
+          for dev in /sys/block/mmcblk[0-9]/queue/scheduler; do
+              [ -f "$dev" ] && echo "deadline" > "$dev" 2>/dev/null;
+          done;
+          echo 10 > /proc/sys/vm/swappiness 2>/dev/null;
+          settings put global window_animation_scale 0 2>/dev/null;
+          settings put global transition_animation_scale 0 2>/dev/null;
+          settings put global animator_duration_scale 0 2>/dev/null;
+      `;
+      execSync(`su -c '${tweaksCmd}'`, { stdio: 'ignore' });
+      console.log("   ✅ Tweak Performa Aktif! (HP mungkin akan terasa lebih hangat)");
+  } catch (e) {
+      console.log("   ❌ Gagal menerapkan tweak performa: Pastikan script berjalan dengan Root.");
+  }
+}
+
+// --- FUNGSI BARU: RESTORE SYSTEM PADA SAAT EXIT ---
+function restoreSystemSettings() {
+  console.log("\n♻️ Mengembalikan Pengaturan Sistem (Pendingin & Animasi)...");
+  try {
+      const restoreCmd = `
+          for i in {0..7}; do
+              echo schedutil > /sys/devices/system/cpu/cpu$i/cpufreq/scaling_governor 2>/dev/null;
+          done;
+          start thermal-engine 2>/dev/null;
+          settings put global window_animation_scale 1 2>/dev/null;
+          settings put global transition_animation_scale 1 2>/dev/null;
+          settings put global animator_duration_scale 1 2>/dev/null;
+      `;
+      execSync(`su -c '${restoreCmd}'`, { stdio: 'ignore' });
+      execSync('termux-wake-unlock', { stdio: 'ignore' });
+      console.log("   ✅ Sistem telah dikembalikan ke kondisi normal.");
+  } catch (e) {}
+}
+
+// Menangani penutupan paksa via CTRL+C agar sistem tetap direstore
+process.on('SIGINT', () => {
+  restoreSystemSettings();
+  process.exit(0);
+});
 
 function initSystem() {
   try {
@@ -105,21 +153,14 @@ async function getUserInfo(cookie) {
 }
 
 function stopPackage(pkg) {
-  try { 
-    execSync(`am force-stop ${pkg}`, { stdio: 'ignore' });
-  } catch (e) {} 
+  try { execSync(`am force-stop ${pkg}`, { stdio: 'ignore' }); } catch (e) {} 
 }
 
 function releaseMemory() {
-  console.log("   ➤ Mencoba membersihkan cache...");
   try {
-    execSync('su -c "sync; echo 3 > /proc/sys/vm/drop_caches"', { stdio: 'inherit' });
-    console.log("   ✅ Cache berhasil dibersihkan (Drop Caches 3).");
+    execSync('su -c "sync; echo 3 > /proc/sys/vm/drop_caches"', { stdio: 'ignore' });
     return true;
-  } catch (e) {
-    console.log(`   ❌ Gagal clear memory: ${e.message}`);
-    return false;
-  }
+  } catch (e) { return false; }
 }
 
 function autoArrangeXML(packages) {
@@ -141,40 +182,21 @@ function autoArrangeXML(packages) {
       sed -i 's|app_cloner_current_window_top\\" value=\\"[0-9]*|app_cloner_current_window_top\\" value=\\"${top}|' ${prefsFile};
       sed -i 's|app_cloner_current_window_right\\" value=\\"[0-9]*|app_cloner_current_window_right\\" value=\\"${right}|' ${prefsFile};
       sed -i 's|app_cloner_current_window_bottom\\" value=\\"[0-9]*|app_cloner_current_window_bottom\\" value=\\"${bottom}|' ${prefsFile};
+      
+      # TAMBAHAN: Paksa grafik kerendah (Level 1)
+      sed -i 's|<int name=\\"GraphicsQualityLevel\\" value=\\".*\\" />|<int name=\\"GraphicsQualityLevel\\" value=\\"1\\" />|g' ${prefsFile};
       chmod 660 ${prefsFile}
     "`;
-
-    try { 
-      execSync(cmd, { stdio: 'ignore' });
-    } catch (e) {}
+    try { execSync(cmd, { stdio: 'ignore' }); } catch (e) {}
   });
-  console.log("✅ Posisi XML tersimpan.");
+  console.log("✅ Posisi XML tersimpan dan Grafis dipaksa rata kiri.");
 }
 
 async function launchPackage(pkg, url) {
   try {
-    const cmd = `am start -n ${pkg}/com.roblox.client.ActivityProtocolLaunch ` +
-                `-a android.intent.action.VIEW -d "${url}"`;
+    const cmd = `am start -n ${pkg}/com.roblox.client.ActivityProtocolLaunch -a android.intent.action.VIEW -d "${url}"`;
     execSync(cmd, { stdio: 'ignore' });
-  } catch (e) {
-      console.log(`❌ Error: ${e.message}`);
-  }
-}
-
-async function getSinglePresence(userId, cookie) {
-  if (!userId || !cookie) return "Unknown ❓";
-  try {
-    const res = await axios.post("https://presence.roblox.com/v1/presence/users",
-      { userIds: [userId] },
-      { headers: { Cookie: cookie, "Content-Type": "application/json" } }
-    );
-    const p = res.data.userPresences[0];
-    if (!p) return "Unknown ❓";
-    if (p.userPresenceType === 2) return "In Game 🎮";
-    if (p.userPresenceType === 1) return "Online 🟡";
-    if (p.userPresenceType === 0) return "Offline ⚫";
-    return `Type ${p.userPresenceType}`;
-  } catch { return "API Error ⚠️"; }
+  } catch (e) {}
 }
 
 async function fetchLinkCodes() {
@@ -188,9 +210,7 @@ async function fetchLinkCodes() {
 function getSystemStats() {
   const cpus = os.cpus();
   const idle = cpus.reduce((acc, cpu) => acc + cpu.times.idle, 0);
-  const total = cpus.reduce((acc, cpu) => {
-    return acc + cpu.times.user + cpu.times.nice + cpu.times.sys + cpu.times.irq + cpu.times.idle;
-  }, 0);
+  const total = cpus.reduce((acc, cpu) => acc + cpu.times.user + cpu.times.nice + cpu.times.sys + cpu.times.irq + cpu.times.idle, 0);
   const cpuUsage = (100 - (idle / total) * 100).toFixed(1);
   const totalMem = os.totalmem();
   const totalGB = (totalMem / (1024 ** 3)).toFixed(2);
@@ -202,7 +222,7 @@ function getSystemStats() {
 function renderDashboard(cleanCode, statusMessage) {
   console.clear();
   const stats = getSystemStats();
-  console.log(`📱 SYSTEM: CPU ${stats.cpu} | RAM ${stats.ram} | UP ${stats.uptime}`);
+  console.log(`📱 SYSTEM: CPU ${stats.cpu} | RAM ${stats.ram} | UP ${stats.uptime} | BOOSTER: ON 🔥`);
   console.log(`📏 MODE: XML GRID (${GRID_COLS} cols) | GAP Y: ${GAP_Y}px`);
   console.log(`📊 STATUS: ${statusMessage} | Mode: ONE-SHOT (No Loop) | Code: ${cleanCode}`);
   const termWidth = process.stdout.columns || 80;
@@ -231,14 +251,11 @@ function renderDashboard(cleanCode, statusMessage) {
   console.log(table.toString());
 }
 
-// --- FUNGSI BARU: CEK PID ---
 function isAppRunning(pkg) {
   try {
     const output = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
     return output.length > 0;
-  } catch (e) {
-    return false;
-  }
+  } catch (e) { return false; }
 }
 
 async function main() {
@@ -246,9 +263,13 @@ async function main() {
   console.clear();
   console.log("🚀 Initializing Manager (One-Shot Mode)...");
 
+  // Aktifkan booster sebelum memulai eksekusi berat
+  applyPerformanceTweaks();
+
   const packages = getPackages();
   if (!packages.length) { 
     console.log("❌ No Roblox packages found."); 
+    restoreSystemSettings();
     process.exit(0); 
   }
 
@@ -264,23 +285,14 @@ async function main() {
       continue; 
     }
 
-    accounts.push({ 
-      pkg, 
-      cookie, 
-      userId: userInfo.id, 
-      username: userInfo.name 
-    });
+    accounts.push({ pkg, cookie, userId: userInfo.id, username: userInfo.name });
     lastRestartMap[pkg] = 0;
-    accountStates[pkg] = {
-      username: userInfo.name,
-      isRunning: false,
-      serverStatus: "Waiting...",
-      action: "-"
-    };
+    accountStates[pkg] = { username: userInfo.name, isRunning: false, serverStatus: "Waiting...", action: "-" };
   }
 
   if (accounts.length === 0) {
     console.log("❌ Tidak ada akun valid untuk dijalankan.");
+    restoreSystemSettings();
     process.exit(0);
   }
 
@@ -289,6 +301,7 @@ async function main() {
   const codes = await fetchLinkCodes();
   if (codes.length === 0) { 
     console.log("⚠️ No codes found."); 
+    restoreSystemSettings();
     process.exit(1); 
   }
 
@@ -312,6 +325,7 @@ async function main() {
         
         if (isNaN(idx) || idx < 0 || idx >= codes.length) {
             console.log("❌ Invalid selection.");
+            restoreSystemSettings();
             process.exit(1);
         }
         cleanCode = codes[idx];
@@ -320,7 +334,6 @@ async function main() {
 
   autoArrangeXML(accounts.map(a => a.pkg));
 
-  // --- LAUNCHING ---
   console.log("\n🚀 Launching valid instances...");
   for (let i = 0; i < accounts.length; i++) {
     const acc = accounts[i];
@@ -333,9 +346,13 @@ async function main() {
     
     let isStable = false;
 
-    // Terus ulangi sampai aplikasi stabil berjalan selama 60 detik
     while (!isStable) {
-      stopPackage(acc.pkg); // Pastikan force-stop agar mulai dalam kondisi bersih
+      stopPackage(acc.pkg); 
+      
+      // Clear RAM sebelum membuka aplikasi baru (Sangat penting untuk mencegah force close berjamaah)
+      releaseMemory();
+      await sleep(1500); 
+
       await launchPackage(acc.pkg, finalLaunchUrl);
       
       lastRestartMap[acc.pkg] = Date.now();
@@ -344,16 +361,14 @@ async function main() {
       
       let crashed = false;
 
-      // Pengecekan per detik selama 1 menit (60 detik)
       for (let sec = 1; sec <= 60; sec++) {
         renderDashboard(
             AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
             `⏳ ${acc.username} Stabilizing... (${sec}/60s)`
         );
 
-        await sleep(1000); // Tunggu 1 detik
+        await sleep(1000); 
 
-        // Cek apakah aplikasi masih hidup
         if (!isAppRunning(acc.pkg)) {
             accountStates[acc.pkg].serverStatus = "Force Close!";
             renderDashboard(
@@ -361,26 +376,26 @@ async function main() {
                 `⚠️ ${acc.username} Force Close di detik ${sec}! Membuka ulang...`
             );
             crashed = true;
-            await sleep(3000); // Jeda 3 detik sebelum mencoba membuka ulang aplikasi
-            break; // Keluar dari loop 60 detik, kembali ke awal 'while (!isStable)'
+            await sleep(3000); 
+            break; 
         }
       }
 
-      // Jika loop 60 detik selesai dan status tidak crash, berarti stabil
       if (!crashed) {
         accountStates[acc.pkg].serverStatus = "In Game 🎮 (Stable)";
         renderDashboard(
             AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-            `✅ ${acc.username} Stabil selama 1 menit! Lanjut akun berikutnya.`
+            `✅ ${acc.username} Stabil selama 1 menit! Lanjut...`
         );
         isStable = true; 
-        await sleep(2000); // Jeda sebentar sebelum pindah memproses akun selanjutnya
+        await sleep(2000); 
       }
     }
   }
 
   console.log("\n🧹 Performing Final Memory Release...");
   releaseMemory();
+  restoreSystemSettings();
   
   console.log("\n✅ [DONE] Semua akun telah diluncurkan.");
   console.log("👋 Script exiting (One-Shot Mode).");
