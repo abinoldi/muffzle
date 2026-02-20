@@ -334,6 +334,7 @@ async function main() {
 
   // --- FASE 1: PELUNCURAN BERURUTAN ---
   console.log("\n🚀 Launching valid instances (Fase 1)...");
+  
   for (let i = 0; i < accounts.length; i++) {
     const acc = accounts[i];
     
@@ -342,50 +343,76 @@ async function main() {
         currentCode = currentCode.split("linkCode=")[1].split("&")[0];
     }
     const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
+
+    // TAHAP 1: Buka Aplikasi
+    stopPackage(acc.pkg); // Pastikan bersih sebelum eksekusi pertama
+    releaseMemory();
+    await sleep(1500); 
+
+    accountStates[acc.pkg].serverStatus = "First Launch...";
+    renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `🚀 [1/5] ${acc.username} Membuka aplikasi...`);
+    await launchPackage(acc.pkg, finalLaunchUrl);
     
+    // TAHAP 2: Tunggu 40 detik
+    for (let sec = 1; sec <= 40; sec++) {
+      renderDashboard(
+          AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+          `⏳ [2/5] ${acc.username} Menunggu 40 detik... (${sec}/40s)`
+      );
+      await sleep(1000); 
+    }
+
+    // TAHAP 3: Paksa aplikasi tersebut Force Close (wajib)
+    accountStates[acc.pkg].serverStatus = "Force Closing...";
+    renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `🛑 [3/5] ${acc.username} Melakukan Force Close (Wajib)...`);
+    stopPackage(acc.pkg);
+    releaseMemory();
+    await sleep(3000); // Beri jeda 3 detik agar sistem OS benar-benar mematikan prosesnya
+
+    // TAHAP 4 & 5: Buka lagi & Tunggu 60 detik untuk stabilisasi
     let isStable = false;
-
     while (!isStable) {
-      stopPackage(acc.pkg); 
-      releaseMemory();
-      await sleep(1500); 
-
+      accountStates[acc.pkg].serverStatus = "Re-launching...";
+      renderDashboard(AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, `🚀 [4/5] ${acc.username} Membuka ulang aplikasi...`);
       await launchPackage(acc.pkg, finalLaunchUrl);
       
       lastRestartMap[acc.pkg] = Date.now();
       accountStates[acc.pkg].isRunning = true;
-      accountStates[acc.pkg].serverStatus = "Launching...";
+      accountStates[acc.pkg].serverStatus = "Stabilizing...";
       
       let crashed = false;
-
+      
       // Tunggu stabil selama 60 detik
       for (let sec = 1; sec <= 60; sec++) {
         renderDashboard(
             AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-            `⏳ ${acc.username} Stabilizing... (${sec}/60s)`
+            `⏳ [5/5] ${acc.username} Stabilisasi 60 detik... (${sec}/60s)`
         );
-
         await sleep(1000); 
 
+        // Deteksi jika aplikasi malah crash tidak terduga saat masa stabilisasi 60 detik
         if (!isAppRunning(acc.pkg)) {
-            accountStates[acc.pkg].serverStatus = "Force Close!";
+            accountStates[acc.pkg].serverStatus = "Crash! Retrying...";
             renderDashboard(
                 AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-                `⚠️ ${acc.username} Force Close di detik ${sec}! Membuka ulang...`
+                `⚠️ ${acc.username} Crash tidak terduga di detik ${sec}! Mengulang stabilisasi...`
             );
             crashed = true;
+            stopPackage(acc.pkg); 
+            releaseMemory();
             await sleep(3000); 
-            break; 
+            break; // Keluar dari loop 60s, kembali ke awal while (!isStable)
         }
       }
 
+      // TAHAP 6: Lanjut ke aplikasi berikutnya
       if (!crashed) {
         accountStates[acc.pkg].serverStatus = "In Game 🎮 (Stable)";
         renderDashboard(
             AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-            `✅ ${acc.username} Stabil selama 1 menit! Lanjut...`
+            `✅ ${acc.username} Lulus stabilisasi 60 detik! Lanjut ke akun berikutnya...`
         );
-        isStable = true; 
+        isStable = true; // Loop while selesai, lanjut ke i++ (akun selanjutnya)
         await sleep(2000); 
       }
     }
