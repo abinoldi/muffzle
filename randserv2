@@ -153,7 +153,9 @@ async function getUserInfo(cookie) {
 }
 
 function stopPackage(pkg) {
-  try { execSync(`am force-stop ${pkg}`, { stdio: 'ignore' }); } catch (e) {} 
+  try { 
+    execSync(`su -c "pkill -9 -f ${pkg}"`, { stdio: 'ignore' });
+  } catch (e) {} 
 }
 
 function releaseMemory() {
