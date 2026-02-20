@@ -153,8 +153,16 @@ async function getUserInfo(cookie) {
 }
 
 function stopPackage(pkg) {
-  try { 
-    execSync(`su -c "pkill -9 -f ${pkg}"`, { stdio: 'ignore' });
+  try {
+    // 1. pidof akan mencari ID proses yang namanya TEPAT SAMA dengan isi variabel pkg
+    // (Misal pkg berisi 'com.roblox.clienb', maka clienb2 tidak akan ikut terpanggil)
+    const pids = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
+    
+    // 2. Jika ID proses ditemukan, bunuh paksa menggunakan kill -9
+    if (pids) {
+      execSync(`su -c "kill -9 ${pids}"`, { stdio: 'ignore' });
+    }
+
   } catch (e) {} 
 }
 
