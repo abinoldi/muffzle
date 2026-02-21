@@ -10,7 +10,7 @@ const MSRV_URL = "https://ghostbin.axel.org/paste/nk4fh/raw";
 const PLACE_ID = "121864768012064";
 
 // STATUS MONITORING
-const CHECK_SERVER_PRESENCE = false; 
+const CHECK_SERVER_PRESENCE = false;
 const AUTO_RECONNECT = false;     
 const AUTO_RANDOM_CODE = false;
 
@@ -153,7 +153,8 @@ async function getUserInfo(cookie) {
 }
 
 function stopPackage(pkg) {
-  try { execSync(`am force-stop ${pkg}`, { stdio: 'ignore' }); } catch (e) {} 
+  try { execSync(`am force-stop ${pkg}`, { stdio: 'ignore' });
+  } catch (e) {} 
 }
 
 function releaseMemory() {
@@ -300,33 +301,45 @@ async function main() {
   if (codes.length === 0) { 
     console.log("⚠️ No codes found."); 
     restoreSystemSettings();
-    process.exit(1); 
+    process.exit(1);
   }
 
+  // --- MODIFIKASI: ARGUMEN UNTUK SERVER 0 / NONE ---
   let cleanCode = "";
   if (!AUTO_RANDOM_CODE) {
     const argIndex = process.argv.indexOf("-server");
     let selectedIdx = -1;
+    
     if (argIndex !== -1 && process.argv[argIndex + 1]) {
-        selectedIdx = parseInt(process.argv[argIndex + 1]) - 1;
+        if (process.argv[argIndex + 1] === "0") {
+            cleanCode = "NONE";
+        } else {
+            selectedIdx = parseInt(process.argv[argIndex + 1]) - 1;
+        }
     }
 
-    if (selectedIdx >= 0 && selectedIdx < codes.length) {
+    if (cleanCode === "NONE") {
+        console.log(`\n✅ Auto-selecting Public Server (Tanpa Link Code).`);
+    } else if (selectedIdx >= 0 && selectedIdx < codes.length) {
         console.log(`\n✅ Auto-selecting Server [${selectedIdx + 1}] via arguments.`);
         cleanCode = codes[selectedIdx];
     } else {
         console.log("\n📜 Available Codes:");
         codes.forEach((code, index) => console.log(`[${index + 1}] ${code}`));
         
-        const selection = await ask("\n👉 Choose Server: ");
-        const idx = parseInt(selection) - 1;
-        
-        if (isNaN(idx) || idx < 0 || idx >= codes.length) {
-            console.log("❌ Invalid selection.");
-            restoreSystemSettings();
-            process.exit(1);
+        const selection = await ask("\n👉 Choose Server (Ketik 0 untuk Public Server): ");
+        if (selection.trim() === "0") {
+            cleanCode = "NONE";
+            console.log(`\n✅ Memilih Public Server (Tanpa Link Code).`);
+        } else {
+            const idx = parseInt(selection) - 1;
+            if (isNaN(idx) || idx < 0 || idx >= codes.length) {
+                console.log("❌ Invalid selection.");
+                restoreSystemSettings();
+                process.exit(1);
+            }
+            cleanCode = codes[idx];
         }
-        cleanCode = codes[idx];
     }
   }
 
@@ -337,12 +350,16 @@ async function main() {
   for (let i = 0; i < accounts.length; i++) {
     const acc = accounts[i];
     
-    let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
-    if(currentCode.includes("linkCode=")) {
-        currentCode = currentCode.split("linkCode=")[1].split("&")[0];
+    // --- MODIFIKASI: LOGIKA LINK URL ---
+    let finalLaunchUrl = `roblox://placeID=${PLACE_ID}`;
+    if (cleanCode !== "NONE") {
+        let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
+        if(currentCode.includes("linkCode=")) {
+            currentCode = currentCode.split("linkCode=")[1].split("&")[0];
+        }
+        finalLaunchUrl += `&linkCode=${currentCode}`;
     }
-    const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
-    
+
     let isStable = false;
 
     while (!isStable) {
@@ -351,28 +368,20 @@ async function main() {
       await sleep(1500); 
 
       await launchPackage(acc.pkg, finalLaunchUrl);
-      
       lastRestartMap[acc.pkg] = Date.now();
       accountStates[acc.pkg].isRunning = true;
       accountStates[acc.pkg].serverStatus = "Launching...";
       
       let crashed = false;
-
       // Tunggu stabil selama 60 detik
       for (let sec = 1; sec <= 60; sec++) {
-        renderDashboard(
-            AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-            `⏳ ${acc.username} Stabilizing... (${sec}/60s)`
-        );
-
+        let displayCode = cleanCode === "NONE" ? "PUBLIC SERVER" : (AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`);
+        renderDashboard(displayCode, `⏳ ${acc.username} Stabilizing... (${sec}/60s)`);
         await sleep(1000); 
 
         if (!isAppRunning(acc.pkg)) {
             accountStates[acc.pkg].serverStatus = "Force Close!";
-            renderDashboard(
-                AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-                `⚠️ ${acc.username} Force Close di detik ${sec}! Membuka ulang...`
-            );
+            renderDashboard(displayCode, `⚠️ ${acc.username} Force Close di detik ${sec}! Membuka ulang...`);
             crashed = true;
             await sleep(3000); 
             break; 
@@ -380,11 +389,9 @@ async function main() {
       }
 
       if (!crashed) {
+        let displayCode = cleanCode === "NONE" ? "PUBLIC SERVER" : (AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`);
         accountStates[acc.pkg].serverStatus = "In Game 🎮 (Stable)";
-        renderDashboard(
-            AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-            `✅ ${acc.username} Stabil selama 1 menit! Lanjut...`
-        );
+        renderDashboard(displayCode, `✅ ${acc.username} Stabil selama 1 menit! Lanjut...`);
         isStable = true; 
         await sleep(2000); 
       }
@@ -397,37 +404,33 @@ async function main() {
 
   while (!allRunning && retryCount < MAX_FINAL_RETRIES) {
     allRunning = true;
-    
     for (let i = 0; i < accounts.length; i++) {
       const acc = accounts[i];
-      
       // Jika ditemukan aplikasi yang mati di latar belakang
       if (!isAppRunning(acc.pkg)) {
         allRunning = false;
-        accountStates[acc.pkg].serverStatus = "Re-opening...";
-        renderDashboard(
-            AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-            `🔍 Pengecekan Akhir: ${acc.username} Force Close! Membuka ulang...`
-        );
         
+        let displayCode = cleanCode === "NONE" ? "PUBLIC SERVER" : (AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`);
+        accountStates[acc.pkg].serverStatus = "Re-opening...";
+        renderDashboard(displayCode, `🔍 Pengecekan Akhir: ${acc.username} Force Close! Membuka ulang...`);
         stopPackage(acc.pkg);
         releaseMemory();
         await sleep(1500);
 
-        let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
-        if(currentCode.includes("linkCode=")) {
-            currentCode = currentCode.split("linkCode=")[1].split("&")[0];
+        // --- MODIFIKASI: LOGIKA LINK URL DI FINAL CHECK ---
+        let finalLaunchUrl = `roblox://placeID=${PLACE_ID}`;
+        if (cleanCode !== "NONE") {
+            let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
+            if(currentCode.includes("linkCode=")) {
+                currentCode = currentCode.split("linkCode=")[1].split("&")[0];
+            }
+            finalLaunchUrl += `&linkCode=${currentCode}`;
         }
-        const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
         
         await launchPackage(acc.pkg, finalLaunchUrl);
-        
         // Beri waktu 20 detik agar aplikasi baru ini masuk ke game
         for(let w = 1; w <= 20; w++) {
-           renderDashboard(
-              AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-              `⏳ Menunggu ${acc.username} re-open... (${w}/20s)`
-           );
+           renderDashboard(displayCode, `⏳ Menunggu ${acc.username} re-open... (${w}/20s)`);
            await sleep(1000);
         }
         accountStates[acc.pkg].serverStatus = "In Game 🎮 (Stable)";
@@ -437,21 +440,17 @@ async function main() {
     if (!allRunning) {
       retryCount++;
       if (retryCount < MAX_FINAL_RETRIES) {
-        renderDashboard(
-            AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-            `🔄 Mengulang pengecekan seluruh aplikasi (Percobaan ke-${retryCount})...`
-        );
+        let displayCode = cleanCode === "NONE" ? "PUBLIC SERVER" : (AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`);
+        renderDashboard(displayCode, `🔄 Mengulang pengecekan seluruh aplikasi (Percobaan ke-${retryCount})...`);
         await sleep(3000);
       }
     }
   }
 
   // --- KESIMPULAN ---
-  renderDashboard(
-      AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-      allRunning ? "✅ SEMUA APLIKASI BERJALAN BERSAMAAN!" : `⚠️ Selesai. Beberapa app gagal karena limit RAM.`
-  );
-
+  let displayCodeFinal = cleanCode === "NONE" ? "PUBLIC SERVER" : (AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`);
+  renderDashboard(displayCodeFinal, allRunning ? "✅ SEMUA APLIKASI BERJALAN BERSAMAAN!" : `⚠️ Selesai. Beberapa app gagal karena limit RAM.`);
+  
   console.log("\n🧹 Performing Final Memory Release...");
   releaseMemory();
   restoreSystemSettings();
