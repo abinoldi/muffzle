@@ -112,7 +112,6 @@ run_system() {
     
     # Hapus file lama biar bersih
     rm -f *.zip *.apk
-    rm -rf codexlite*/  # Hapus folder lama jika ada
     
     # --- Download ---
     echo -e "${BLUE}[INFO]${NC} Mendapatkan token..."
@@ -148,6 +147,7 @@ run_system() {
     
     # Cek apakah file ZIP valid
     if unzip -t "$ZIP_FILE" >/dev/null 2>&1; then
+        # Ekstrak langsung ke folder saat ini ($STORAGE_DIR)
         unzip -o "$ZIP_FILE" -d ./ >/dev/null 2>&1
         if [[ $? -eq 0 ]]; then
             echo -e "${GREEN}[OK]${NC} Ekstraksi ZIP berhasil."
@@ -160,32 +160,14 @@ run_system() {
         exit 1
     fi
     
-    # --- Cari folder hasil extract ---
-    echo -e "${BLUE}[INFO]${NC} Mencari folder hasil extract..."
-    
-    # Cari folder yang baru diekstrak
-    EXTRACT_FOLDER=$(find "$STORAGE_DIR" -maxdepth 1 -type d -name "codexlite*" | head -n 1)
-    
-    if [[ -z "$EXTRACT_FOLDER" ]]; then
-        echo -e "${RED}[FAIL]${NC} Tidak dapat menemukan folder hasil extract."
-        echo -e "${YELLOW}Isi folder:${NC}"
-        ls -la
-        exit 1
-    fi
-    
-    echo -e "${GREEN}[OK]${NC} Folder ditemukan: $(basename "$EXTRACT_FOLDER")"
-    
-    # --- Pindah ke folder hasil extract ---
-    cd "$EXTRACT_FOLDER" || exit
-    echo -e "${BLUE}[INFO]${NC} Pindah ke folder: $PWD"
-    
     # --- Cari semua APK di folder ini ---
+    echo -e "${BLUE}[INFO]${NC} Mencari file APK..."
     local apks=($(ls *.apk 2>/dev/null | sort -V))
     local total_apks=${#apks[@]}
     
     if [[ $total_apks -eq 0 ]]; then
-        echo -e "${RED}[FAIL]${NC} Tidak ada APK ditemukan di folder ini."
-        echo -e "${YELLOW}Isi folder:${NC}"
+        echo -e "${RED}[FAIL]${NC} Tidak ada APK ditemukan di dalam file ZIP tersebut."
+        echo -e "${YELLOW}Isi folder saat ini:${NC}"
         ls -la
         exit 1
     fi
@@ -202,7 +184,7 @@ run_system() {
     # Cek apakah su (root) tersedia
     if ! command -v su &>/dev/null; then
         echo -e "${RED}[FAIL]${NC} Akses Root (su) tidak tersedia."
-        echo -e "${GREEN}[TIP]${NC} File sudah tersimpan di: $EXTRACT_FOLDER"
+        echo -e "${GREEN}[TIP]${NC} File APK sudah tersimpan di: $STORAGE_DIR"
         echo -e "${GREEN}[TIP]${NC} Silakan install manual menggunakan File Manager bawaan HP."
         exit 0
     fi
@@ -215,8 +197,8 @@ run_system() {
     
     for apk in "${apks[@]}"; do
         echo -n "📦 Installing $apk... "
-        # Gunakan su -c untuk menginstall
-        if su -c "pm install -r \"$EXTRACT_FOLDER/$apk\"" >/dev/null 2>&1; then
+        # Gunakan su -c untuk menginstall langsung dari $STORAGE_DIR
+        if su -c "pm install -r \"$STORAGE_DIR/$apk\"" >/dev/null 2>&1; then
             echo -e "${GREEN}✓ BERHASIL${NC}"
             ((success++))
         else
@@ -232,7 +214,6 @@ run_system() {
     echo ""
     echo -e "${BLUE}[INFO]${NC} File ZIP dan APK tersimpan di:"
     echo -e "   ${YELLOW}$STORAGE_DIR${NC}"
-    echo -e "   ${YELLOW}$EXTRACT_FOLDER${NC} (folder APK)"
 }
 
 run_system
