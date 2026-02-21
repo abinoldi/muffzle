@@ -24,7 +24,7 @@ const GAP_Y = 60;
 // --- TIMING & RETRY ---
 const CHECK_INTERVAL = 60;
 const POST_GAME_WAIT = 15000;
-const MAX_FINAL_RETRIES = 3; // Batas maksimal mencoba ulang di fase akhir agar tidak infinite loop
+const MAX_FINAL_RETRIES = 3;
 
 function ensurePackage(pkg) {
   try { require.resolve(pkg); } 
@@ -75,7 +75,6 @@ function applyPerformanceTweaks() {
   }
 }
 
-// --- RESTORE SYSTEM PADA SAAT EXIT ---
 function restoreSystemSettings() {
   console.log("\n♻️ Mengembalikan Pengaturan Sistem (Pendingin & Animasi)...");
   try {
@@ -113,7 +112,6 @@ function initSystem() {
 }
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
 const ask = (q) => new Promise(r => {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   rl.question(q, (ans) => { rl.close(); r(ans); });
@@ -153,8 +151,7 @@ async function getUserInfo(cookie) {
 }
 
 function stopPackage(pkg) {
-  try { execSync(`am force-stop ${pkg}`, { stdio: 'ignore' });
-  } catch (e) {} 
+  try { execSync(`am force-stop ${pkg}`, { stdio: 'ignore' }); } catch (e) {} 
 }
 
 function releaseMemory() {
@@ -191,11 +188,28 @@ function autoArrangeXML(packages) {
   console.log("✅ Posisi XML tersimpan dan Grafis dipaksa rata kiri.");
 }
 
+// 🛡️ NEW: FORCE ISOLATION FLAGS PADA AM START
 async function launchPackage(pkg, url) {
   try {
-    const cmd = `am start -n ${pkg}/com.roblox.client.ActivityProtocolLaunch -a android.intent.action.VIEW -d "${url}"`;
+    // Flag 0x18080000 = FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_MULTIPLE_TASK | FLAG_ACTIVITY_NEW_DOCUMENT
+    // Ini memaksa app jalan di sandbox/task terpisah
+    const cmd = `am start -n ${pkg}/com.roblox.client.ActivityProtocolLaunch -f 0x18080000 -a android.intent.action.VIEW -d "${url}"`;
     execSync(cmd, { stdio: 'ignore' });
   } catch (e) {}
+}
+
+// 🛡️ NEW: OOM PROTECTION (ANTI LMK)
+async function protectProcessFromLMK(pkg) {
+  try {
+    const pid = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
+    if (pid) {
+      // Nilai -900 membuat sistem sangat enggan membunuh proses ini saat RAM penuh
+      execSync(`su -c "echo -900 > /proc/${pid}/oom_score_adj"`, { stdio: 'ignore' });
+      return true;
+    }
+  } catch (e) {
+    return false;
+  }
 }
 
 async function fetchLinkCodes() {
@@ -224,6 +238,7 @@ function renderDashboard(cleanCode, statusMessage) {
   console.log(`📱 SYSTEM: CPU ${stats.cpu} | RAM ${stats.ram} | UP ${stats.uptime} | BOOSTER: ON 🔥`);
   console.log(`📏 MODE: XML GRID (${GRID_COLS} cols) | GAP Y: ${GAP_Y}px`);
   console.log(`📊 STATUS: ${statusMessage} | Mode: ONE-SHOT (No Loop) | Code: ${cleanCode}`);
+  
   const termWidth = process.stdout.columns || 80;
   const safeWidth = Math.max(40, termWidth - 8); 
 
@@ -232,11 +247,13 @@ function renderDashboard(cleanCode, statusMessage) {
   const wState = Math.floor(safeWidth * 0.15);
   const wStatus = Math.floor(safeWidth * 0.20);
   const wAction = Math.max(5, safeWidth - (wPkg + wUser + wState + wStatus));
+  
   const table = new Table({ 
       head: ['Pkg', 'User', 'State', 'Status', 'Action'], 
       colWidths: [wPkg, wUser, wState, wStatus, wAction],
       wordWrap: true 
   });
+  
   Object.keys(accountStates).sort().forEach(pkg => {
     const s = accountStates[pkg];
     table.push([
@@ -247,6 +264,7 @@ function renderDashboard(cleanCode, statusMessage) {
       s.action
     ]);
   });
+  
   console.log(table.toString());
 }
 
@@ -262,7 +280,6 @@ async function main() {
   console.clear();
   console.log("🚀 Initializing Manager (One-Shot Mode)...");
 
-  // Aktifkan booster sebelum memulai eksekusi berat
   applyPerformanceTweaks();
 
   const packages = getPackages();
@@ -304,62 +321,44 @@ async function main() {
     process.exit(1);
   }
 
-  // --- MODIFIKASI: ARGUMEN UNTUK SERVER 0 / NONE ---
   let cleanCode = "";
   if (!AUTO_RANDOM_CODE) {
     const argIndex = process.argv.indexOf("-server");
     let selectedIdx = -1;
-    
     if (argIndex !== -1 && process.argv[argIndex + 1]) {
-        if (process.argv[argIndex + 1] === "0") {
-            cleanCode = "NONE";
-        } else {
-            selectedIdx = parseInt(process.argv[argIndex + 1]) - 1;
-        }
+        selectedIdx = parseInt(process.argv[argIndex + 1]) - 1;
     }
 
-    if (cleanCode === "NONE") {
-        console.log(`\n✅ Auto-selecting Public Server (Tanpa Link Code).`);
-    } else if (selectedIdx >= 0 && selectedIdx < codes.length) {
+    if (selectedIdx >= 0 && selectedIdx < codes.length) {
         console.log(`\n✅ Auto-selecting Server [${selectedIdx + 1}] via arguments.`);
         cleanCode = codes[selectedIdx];
     } else {
         console.log("\n📜 Available Codes:");
         codes.forEach((code, index) => console.log(`[${index + 1}] ${code}`));
         
-        const selection = await ask("\n👉 Choose Server (Ketik 0 untuk Public Server): ");
-        if (selection.trim() === "0") {
-            cleanCode = "NONE";
-            console.log(`\n✅ Memilih Public Server (Tanpa Link Code).`);
-        } else {
-            const idx = parseInt(selection) - 1;
-            if (isNaN(idx) || idx < 0 || idx >= codes.length) {
-                console.log("❌ Invalid selection.");
-                restoreSystemSettings();
-                process.exit(1);
-            }
-            cleanCode = codes[idx];
+        const selection = await ask("\n👉 Choose Server: ");
+        const idx = parseInt(selection) - 1;
+        
+        if (isNaN(idx) || idx < 0 || idx >= codes.length) {
+            console.log("❌ Invalid selection.");
+            restoreSystemSettings();
+            process.exit(1);
         }
+        cleanCode = codes[idx];
     }
   }
 
   autoArrangeXML(accounts.map(a => a.pkg));
-
+  
   // --- FASE 1: PELUNCURAN BERURUTAN ---
   console.log("\n🚀 Launching valid instances (Fase 1)...");
   for (let i = 0; i < accounts.length; i++) {
     const acc = accounts[i];
-    
-    // --- MODIFIKASI: LOGIKA LINK URL ---
-    let finalLaunchUrl = `roblox://placeID=${PLACE_ID}`;
-    if (cleanCode !== "NONE") {
-        let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
-        if(currentCode.includes("linkCode=")) {
-            currentCode = currentCode.split("linkCode=")[1].split("&")[0];
-        }
-        finalLaunchUrl += `&linkCode=${currentCode}`;
+    let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
+    if(currentCode.includes("linkCode=")) {
+        currentCode = currentCode.split("linkCode=")[1].split("&")[0];
     }
-
+    const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
     let isStable = false;
 
     while (!isStable) {
@@ -372,16 +371,24 @@ async function main() {
       accountStates[acc.pkg].isRunning = true;
       accountStates[acc.pkg].serverStatus = "Launching...";
       
+      // 🛡️ Beri waktu app jalan, lalu suntik proteksi OOM
+      await sleep(3000); 
+      await protectProcessFromLMK(acc.pkg);
+      
       let crashed = false;
-      // Tunggu stabil selama 60 detik
       for (let sec = 1; sec <= 60; sec++) {
-        let displayCode = cleanCode === "NONE" ? "PUBLIC SERVER" : (AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`);
-        renderDashboard(displayCode, `⏳ ${acc.username} Stabilizing... (${sec}/60s)`);
+        renderDashboard(
+            AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+            `⏳ ${acc.username} Stabilizing... (${sec}/60s) 🛡️ Shield ON`
+        );
         await sleep(1000); 
 
         if (!isAppRunning(acc.pkg)) {
             accountStates[acc.pkg].serverStatus = "Force Close!";
-            renderDashboard(displayCode, `⚠️ ${acc.username} Force Close di detik ${sec}! Membuka ulang...`);
+            renderDashboard(
+                AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+                `⚠️ ${acc.username} Force Close di detik ${sec}! Membuka ulang...`
+            );
             crashed = true;
             await sleep(3000); 
             break; 
@@ -389,9 +396,11 @@ async function main() {
       }
 
       if (!crashed) {
-        let displayCode = cleanCode === "NONE" ? "PUBLIC SERVER" : (AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`);
         accountStates[acc.pkg].serverStatus = "In Game 🎮 (Stable)";
-        renderDashboard(displayCode, `✅ ${acc.username} Stabil selama 1 menit! Lanjut...`);
+        renderDashboard(
+            AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+            `✅ ${acc.username} Stabil! Lanjut ke akun berikutnya...`
+        );
         isStable = true; 
         await sleep(2000); 
       }
@@ -406,31 +415,34 @@ async function main() {
     allRunning = true;
     for (let i = 0; i < accounts.length; i++) {
       const acc = accounts[i];
-      // Jika ditemukan aplikasi yang mati di latar belakang
       if (!isAppRunning(acc.pkg)) {
         allRunning = false;
-        
-        let displayCode = cleanCode === "NONE" ? "PUBLIC SERVER" : (AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`);
         accountStates[acc.pkg].serverStatus = "Re-opening...";
-        renderDashboard(displayCode, `🔍 Pengecekan Akhir: ${acc.username} Force Close! Membuka ulang...`);
+        renderDashboard(
+            AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+            `🔍 Pengecekan Akhir: ${acc.username} FC! Membuka ulang...`
+        );
         stopPackage(acc.pkg);
         releaseMemory();
         await sleep(1500);
 
-        // --- MODIFIKASI: LOGIKA LINK URL DI FINAL CHECK ---
-        let finalLaunchUrl = `roblox://placeID=${PLACE_ID}`;
-        if (cleanCode !== "NONE") {
-            let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
-            if(currentCode.includes("linkCode=")) {
-                currentCode = currentCode.split("linkCode=")[1].split("&")[0];
-            }
-            finalLaunchUrl += `&linkCode=${currentCode}`;
+        let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
+        if(currentCode.includes("linkCode=")) {
+            currentCode = currentCode.split("linkCode=")[1].split("&")[0];
         }
+        const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
         
         await launchPackage(acc.pkg, finalLaunchUrl);
-        // Beri waktu 20 detik agar aplikasi baru ini masuk ke game
+        
+        // 🛡️ Suntik ulang proteksi OOM setelah re-open
+        await sleep(3000);
+        await protectProcessFromLMK(acc.pkg);
+
         for(let w = 1; w <= 20; w++) {
-           renderDashboard(displayCode, `⏳ Menunggu ${acc.username} re-open... (${w}/20s)`);
+           renderDashboard(
+              AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+              `⏳ Menunggu ${acc.username} re-open... (${w}/20s) 🛡️ Shield ON`
+           );
            await sleep(1000);
         }
         accountStates[acc.pkg].serverStatus = "In Game 🎮 (Stable)";
@@ -440,25 +452,29 @@ async function main() {
     if (!allRunning) {
       retryCount++;
       if (retryCount < MAX_FINAL_RETRIES) {
-        let displayCode = cleanCode === "NONE" ? "PUBLIC SERVER" : (AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`);
-        renderDashboard(displayCode, `🔄 Mengulang pengecekan seluruh aplikasi (Percobaan ke-${retryCount})...`);
+        renderDashboard(
+            AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+            `🔄 Mengulang pengecekan seluruh aplikasi (Percobaan ke-${retryCount})...`
+        );
         await sleep(3000);
       }
     }
   }
 
   // --- KESIMPULAN ---
-  let displayCodeFinal = cleanCode === "NONE" ? "PUBLIC SERVER" : (AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`);
-  renderDashboard(displayCodeFinal, allRunning ? "✅ SEMUA APLIKASI BERJALAN BERSAMAAN!" : `⚠️ Selesai. Beberapa app gagal karena limit RAM.`);
+  renderDashboard(
+      AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
+      allRunning ? "✅ SEMUA APLIKASI BERJALAN BERSAMAAN!" : `⚠️ Selesai. Beberapa app gagal karena limit Fisik RAM/Hardware.`
+  );
   
   console.log("\n🧹 Performing Final Memory Release...");
   releaseMemory();
   restoreSystemSettings();
   
   if (allRunning) {
-      console.log("\n🎉 [SUKSES] Seluruh akun berhasil diluncurkan dan bertahan.");
+      console.log("\n🎉 [SUKSES] Seluruh akun berhasil diluncurkan dan dipertahankan.");
   } else {
-      console.log("\n⚠️ [INFO] Limit device tercapai. Beberapa akun dimatikan otomatis oleh OS Android.");
+      console.log("\n⚠️ [INFO] RAM benar-benar habis. Sistem perlindungan Kernel (Hard Limit) terpicu.");
   }
   
   console.log("👋 Script exiting (One-Shot Mode).");
