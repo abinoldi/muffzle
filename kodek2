@@ -6,10 +6,10 @@
 # =============================================
 
 # Konfigurasi
-TARGET_URL="https://gofile.io/d/OGGtb3"
+TARGET_URL="https://gofile.io/d/t6Zx0F"
 # Folder ini akan muncul di Internal Storage -> Download
 STORAGE_DIR="/sdcard/Download/Gofile-Installer" 
-ZIP_FILE="codexitil.zip"
+ZIP_FILE="codexlite.zip"
 WT_TOKEN="4fd6sg89d7s6"
 
 # Warna
@@ -112,7 +112,7 @@ run_system() {
     
     # Hapus file lama biar bersih
     rm -f *.zip *.apk
-    rm -rf codexit11/  # Hapus folder lama jika ada
+    rm -rf codexlite*/  # Hapus folder lama jika ada
     
     # --- Download ---
     echo -e "${BLUE}[INFO]${NC} Mendapatkan token..."
@@ -146,7 +146,7 @@ run_system() {
     # --- Extract ZIP ---
     echo -e "${BLUE}[INFO]${NC} Mengekstrak file ZIP..."
     
-    # Cek apakah file ZIP valid (pake unzip -t aja biar aman)
+    # Cek apakah file ZIP valid
     if unzip -t "$ZIP_FILE" >/dev/null 2>&1; then
         unzip -o "$ZIP_FILE" -d ./ >/dev/null 2>&1
         if [[ $? -eq 0 ]]; then
@@ -163,8 +163,8 @@ run_system() {
     # --- Cari folder hasil extract ---
     echo -e "${BLUE}[INFO]${NC} Mencari folder hasil extract..."
     
-    # Cari folder yang baru diekstrak (biasanya codexit11)
-    EXTRACT_FOLDER=$(find "$STORAGE_DIR" -maxdepth 1 -type d -name "codexit*" | head -n 1)
+    # Cari folder yang baru diekstrak
+    EXTRACT_FOLDER=$(find "$STORAGE_DIR" -maxdepth 1 -type d -name "codexlite*" | head -n 1)
     
     if [[ -z "$EXTRACT_FOLDER" ]]; then
         echo -e "${RED}[FAIL]${NC} Tidak dapat menemukan folder hasil extract."
@@ -199,10 +199,11 @@ run_system() {
     # --- Install SEMUA APK ---
     echo -e "${YELLOW}[!]${NC} Meminta akses Root untuk install ${total_apks} APK..."
     
-    if ! command -v sudo &>/dev/null || ! sudo -n true 2>/dev/null; then
-        echo -e "${RED}[FAIL]${NC} Akses Root tidak tersedia."
+    # Cek apakah su (root) tersedia
+    if ! command -v su &>/dev/null; then
+        echo -e "${RED}[FAIL]${NC} Akses Root (su) tidak tersedia."
         echo -e "${GREEN}[TIP]${NC} File sudah tersimpan di: $EXTRACT_FOLDER"
-        echo -e "${GREEN}[TIP]${NC} Silakan install manual menggunakan File Manager."
+        echo -e "${GREEN}[TIP]${NC} Silakan install manual menggunakan File Manager bawaan HP."
         exit 0
     fi
     
@@ -214,8 +215,8 @@ run_system() {
     
     for apk in "${apks[@]}"; do
         echo -n "📦 Installing $apk... "
-        # Gunakan path lengkap dari folder extract
-        if sudo pm install -r "$EXTRACT_FOLDER/$apk" >/dev/null 2>&1; then
+        # Gunakan su -c untuk menginstall
+        if su -c "pm install -r \"$EXTRACT_FOLDER/$apk\"" >/dev/null 2>&1; then
             echo -e "${GREEN}✓ BERHASIL${NC}"
             ((success++))
         else
