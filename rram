@@ -1,0 +1,46 @@
+-- ======================================================
+-- STANDALONE MEMORY RELEASER (AUTO GARBAGE COLLECTOR)
+-- Initial Delay: 2 Menit | Interval: Setiap 10 Menit
+-- ======================================================
+
+local Stats = game:GetService("Stats")
+
+local INITIAL_DELAY = 120     -- 2 menit (120 detik)
+local CLEANUP_INTERVAL = 600  -- 10 menit (600 detik)
+
+print("⏳ [Memory Releaser] Menunggu 2 menit sebelum pembersihan memori pertama...")
+
+task.spawn(function()
+    -- 1. Jeda awal 2 menit sebelum melakukan apa-apa
+    task.wait(INITIAL_DELAY)
+    
+    -- 2. Masuk ke dalam loop tanpa henti
+    while true do
+        local memBefore = math.floor(Stats:GetTotalMemoryUsageMb())
+        
+        -- EKSEKUSI PEMBERSIHAN
+        pcall(function() collectgarbage("collect") end)
+        pcall(function() if clear_telemetry_cache then clear_telemetry_cache() end end)
+        pcall(function()
+            if getnilinstances then
+                for _, v in pairs(getnilinstances()) do
+                    if v:IsA("BasePart") or v:IsA("MeshPart") then
+                        v:Destroy()
+                    end
+                end
+            end
+        end)
+        
+        task.wait(1) -- Beri waktu mesin untuk bernapas sejenak
+        
+        local memAfter = math.floor(Stats:GetTotalMemoryUsageMb())
+        local savedMem = memBefore - memAfter
+        if savedMem < 0 then savedMem = 0 end 
+        
+        print(string.format("♻️ [Memory Releaser] RAM dibersihkan! Menghemat: %d MB (Sekarang: %d MB)", savedMem, memAfter))
+        
+        -- 3. Tunggu 10 menit untuk siklus pembersihan berikutnya
+        print("⏳ [Memory Releaser] Menunggu 10 menit untuk pembersihan selanjutnya...")
+        task.wait(CLEANUP_INTERVAL)
+    end
+end)
