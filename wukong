@@ -1,106 +1,342 @@
---[[
-    SYNCEHUB UTILITY: TELEPORT & AUTO TRADE (VIRTUAL CLICK)
-    Gabungan dari Standalone Teleport + Auto Accept Trade
-]]
+-- // CONFIGURATION //
+local TARGET_GUI = "Prompt"
+local TARGET_BUTTON = "Yes"
+local CLICKS_PER_SECOND = 10
+local TP_INTERVAL = 2 -- Detik jeda antar teleport
 
+-- // SERVICES //
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
-local CoreGui = game:GetService("CoreGui")
+local GuiService = game:GetService("GuiService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- Variables
-local AutoTradeEnabled = false
-local Locations = {
-    ["Second Enchant Altar"] = Vector3.new(1479.587, 128.295, -604.224),
-    ["Iron Cavern"] = Vector3.new(-8792.546, -588.000, 230.642),
-    ["Enchant Room"] = Vector3.new(3255.670, -1301.530, 1371.790),
-    ["Ancient Jungle"] = Vector3.new(1535.639, 3.159, -193.352),
-    ["Sacred Temple"] = Vector3.new(1461.815, -22.125, -670.234),
-    ["Treasure Room"] = Vector3.new(-3598.440, -281.274, -1645.855),
-    ["Fisherman Island"] = Vector3.new(74.030, 9.530, 2705.230),
-    ["Sunken Wreckage"] = Vector3.new(1547.050, 4.410, 2697.550), -- Tambahan lokasi umum
-}
+print("--- 🤖 AUTO-ACCEPT & TELEPORT LOADED (ENCODED REMOTES) ---")
 
--- =================================================================
--- 1. FUNGSI LOGIKA (AUTO TRADE & TELEPORT)
--- =================================================================
-
--- Fungsi Teleport
-local function DirectTP(pos)
-    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        -- Freeze sebentar biar ga jatuh ke void
-        local oldAnchored = hrp.Anchored
-        hrp.Anchored = true
-        hrp.CFrame = CFrame.new(pos + Vector3.new(0, 5, 0)) -- Teleport 5 studs di atas
-        task.wait(0.5)
-        hrp.Anchored = oldAnchored
-    end
-end
-
--- Fungsi Virtual Click (Simulasi Mouse)
-local function VirtualClick(button)
-    if not button or not button:IsDescendantOf(game) then return end
-    
-    local pos = button.AbsolutePosition
-    local size = button.AbsoluteSize
-    local centerX = pos.X + (size.X / 2)
-    local centerY = pos.Y + (size.Y / 2)
-    
-    -- Klik Kiri (Tekan & Lepas)
-    VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
-    task.wait(0.05)
-    VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
-end
-
--- Fungsi Scan & Accept Trade
-local function CheckAndClickTrade()
-    if not AutoTradeEnabled then return end
-
-    for _, gui in pairs(PlayerGui:GetDescendants()) do
-        if gui:IsA("TextLabel") or gui:IsA("TextButton") then
-            -- Deteksi teks Trade
-            if gui.Visible and (gui.Text:find("Trade Request") or gui.Text:find("wants to trade")) then
-                local parent = gui.Parent
-                if parent then
-                    for _, btn in pairs(parent:GetDescendants()) do
-                        if btn:IsA("TextButton") or btn:IsA("ImageButton") then
-                            -- Cari tombol konfirmasi
-                            if btn.Visible and (btn.Name:find("Confirm") or btn.Name:find("Yes") or btn.Name:find("Accept") or btn.Name == "Button1") then
-                                VirtualClick(btn)
-                                return -- Stop loop agar tidak spam klik
-                            end
+-- ======================================================
+-- FUNGSI MAPPING ENCODED (TEMUAN i + 1)
+-- ======================================================
+local function getEncodedRemote(originalName)
+    local net = ReplicatedStorage:FindFirstChild("Packages")
+    if net then
+        net = net:FindFirstChild("_Index")
+        if net then
+            net = net:FindFirstChild("sleitnick_net@0.2.0")
+            if net then
+                net = net:FindFirstChild("net")
+                if net then
+                    local children = net:GetChildren()
+                    for i = 1, #children do
+                        if children[i].Name == originalName then
+                            -- Langsung ambil objek setelahnya sesuai mapping i + 1
+                            return children[i + 1]
                         end
                     end
                 end
             end
         end
     end
+    return nil
 end
 
--- Loop Auto Trade di Background
+-- ======================================================
+-- FUNGSI GETREMOTE (MENGGUNAKAN ENCODED)
+-- ======================================================
+local function GetRemote(name)
+    return getEncodedRemote(name)
+end
+
+-- ======================================================
+-- AMBIL REMOTE-REMOTE YANG DIPERLUKAN (ENCODED VERSION)
+-- ======================================================
+print("╔══════════════════════════════════════════╗")
+print("║     MENGAMBIL REMOTE ENCODED VERSIONS    ║")
+print("╚══════════════════════════════════════════╝")
+
+-- Remote untuk Trade/Interaction
+local RE_TradeRequest = GetRemote("RE/TradeRequest") 
+local RF_InitiateTrade = GetRemote("RF/InitiateTrade")
+local RE_AcceptTrade = GetRemote("RE/AcceptTrade") 
+local RF_AcceptTrade = GetRemote("RF/AcceptTrade")
+local RE_DeclineTrade = GetRemote("RE/DeclineTrade")
+local RE_TradeComplete = GetRemote("RE/TradeComplete")
+local RE_TradeStarted = GetRemote("RE/TradeStarted")
+
+-- Remote untuk GUI/UI
+local RE_GuiButtonClick = GetRemote("RE/GuiButtonClick")
+local RF_GuiButtonClick = GetRemote("RF/GuiButtonClick")
+local RE_GuiVisibilityChanged = GetRemote("RE/GuiVisibilityChanged")
+local RE_UpdateGui = GetRemote("RE/UpdateGui")
+
+-- Remote untuk Movement/Teleport
+local RE_TeleportRequest = GetRemote("RE/TeleportRequest")
+local RF_TeleportToPlayer = GetRemote("RF/TeleportToPlayer")
+local RE_TeleportFinished = GetRemote("RE/TeleportFinished")
+local RE_CharacterAdded = GetRemote("RE/CharacterAdded")
+
+-- Remote untuk Player Data
+local RF_GetPlayerInfo = GetRemote("RF/GetPlayerInfo")
+local RE_PlayerDataChanged = GetRemote("RE/PlayerDataChanged")
+local RE_PlayerJoined = GetRemote("RE/PlayerJoined")
+
+-- Remote untuk Prompt/GUI
+local RE_PromptShown = GetRemote("RE/PromptShown")
+local RE_PromptHidden = GetRemote("RE/PromptHidden")
+local RF_GetPromptData = GetRemote("RF/GetPromptData")
+
+-- VALIDASI REMOTE
+print("\n=== REMOTE VALIDATION (ENCODED) ===")
+print("RE_TradeRequest:", RE_TradeRequest and RE_TradeRequest.Name or "❌ NOT FOUND")
+print("RF_InitiateTrade:", RF_InitiateTrade and RF_InitiateTrade.Name or "❌ NOT FOUND")
+print("RE_AcceptTrade:", RE_AcceptTrade and RE_AcceptTrade.Name or "❌ NOT FOUND")
+print("RF_AcceptTrade:", RF_AcceptTrade and RF_AcceptTrade.Name or "❌ NOT FOUND")
+print("RE_DeclineTrade:", RE_DeclineTrade and RE_DeclineTrade.Name or "❌ NOT FOUND")
+print("RE_TradeComplete:", RE_TradeComplete and RE_TradeComplete.Name or "❌ NOT FOUND")
+print("RE_TradeStarted:", RE_TradeStarted and RE_TradeStarted.Name or "❌ NOT FOUND")
+print("RE_GuiButtonClick:", RE_GuiButtonClick and RE_GuiButtonClick.Name or "❌ NOT FOUND")
+print("RF_GuiButtonClick:", RF_GuiButtonClick and RF_GuiButtonClick.Name or "❌ NOT FOUND")
+print("RE_GuiVisibilityChanged:", RE_GuiVisibilityChanged and RE_GuiVisibilityChanged.Name or "❌ NOT FOUND")
+print("RE_UpdateGui:", RE_UpdateGui and RE_UpdateGui.Name or "❌ NOT FOUND")
+print("RE_TeleportRequest:", RE_TeleportRequest and RE_TeleportRequest.Name or "❌ NOT FOUND")
+print("RF_TeleportToPlayer:", RF_TeleportToPlayer and RF_TeleportToPlayer.Name or "❌ NOT FOUND")
+print("RE_TeleportFinished:", RE_TeleportFinished and RE_TeleportFinished.Name or "❌ NOT FOUND")
+print("RE_CharacterAdded:", RE_CharacterAdded and RE_CharacterAdded.Name or "❌ NOT FOUND")
+print("RF_GetPlayerInfo:", RF_GetPlayerInfo and RF_GetPlayerInfo.Name or "❌ NOT FOUND")
+print("RE_PlayerDataChanged:", RE_PlayerDataChanged and RE_PlayerDataChanged.Name or "❌ NOT FOUND")
+print("RE_PlayerJoined:", RE_PlayerJoined and RE_PlayerJoined.Name or "❌ NOT FOUND")
+print("RE_PromptShown:", RE_PromptShown and RE_PromptShown.Name or "❌ NOT FOUND")
+print("RE_PromptHidden:", RE_PromptHidden and RE_PromptHidden.Name or "❌ NOT FOUND")
+print("RF_GetPromptData:", RF_GetPromptData and RF_GetPromptData.Name or "❌ NOT FOUND")
+print("=====================================\n")
+
+-- Fungsi untuk memanggil remote dengan aman
+local function FireRemote(remote, ...)
+    if not remote then 
+        return false 
+    end
+    
+    local args = {...}
+    local success = pcall(function()
+        if remote:IsA("RemoteFunction") then
+            return remote:InvokeServer(unpack(args))
+        else
+            remote:FireServer(unpack(args))
+            return true
+        end
+    end)
+    
+    return success
+end
+
+-- // 1. LOGIC TELEPORT //
+local function getTargetPlayer()
+    local allPlayers = Players:GetPlayers()
+    for _, plr in ipairs(allPlayers) do
+        if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            return plr
+        end
+    end
+    return nil
+end
+
 task.spawn(function()
     while true do
-        if AutoTradeEnabled then
-            pcall(CheckAndClickTrade)
+        local target = getTargetPlayer()
+        if target and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local targetHRP = target.Character.HumanoidRootPart
+            local myHRP = LocalPlayer.Character.HumanoidRootPart
+            
+            -- Teleport ke posisi player (sedikit di depan mereka)
+            myHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 0, -3)
+            
+            -- Kirim remote teleport jika ada
+            if RE_TeleportRequest then
+                FireRemote(RE_TeleportRequest, target.UserId)
+            end
+            
+            if RF_TeleportToPlayer then
+                FireRemote(RF_TeleportToPlayer, target.UserId)
+            end
         end
-        task.wait(1) -- Cek setiap 1 detik
+        task.wait(TP_INTERVAL)
     end
 end)
 
--- =================================================================
--- 2. MEMBUAT UI (GUI)
--- =================================================================
-
--- Hapus GUI lama jika ada biar gak numpuk
-if CoreGui:FindFirstChild("SynceHubCombinedUI") then
-    CoreGui.SynceHubCombinedUI:Destroy()
+-- // 2. LOGIC AUTO-ACCEPT (DARI AUTOACCEPTTRADE.LUA) //
+local function getButtonRect(button)
+    if not (button and button.Visible and button.AbsoluteSize.Magnitude > 0) then return nil end
+    
+    local absPos = button.AbsolutePosition
+    local absSize = button.AbsoluteSize
+    local guiInset = GuiService:GetGuiInset()
+    
+    -- Kompensasi posisi berdasarkan inset layar
+    return {
+        X = absPos.X,
+        Y = absPos.Y + guiInset.Y,
+        W = absSize.X,
+        H = absSize.Y
+    }
 end
 
-local sg = Instance.new("ScreenGui")
-sg.Name = "SynceHubCombinedUI"
-sg.ResetOnSpawn = false
--- Coba pasang di CoreGui (lebih aman dari reset), fallback ke 
+local function clickXY(x, y)
+    -- Simulasi input mouse asli
+    VirtualInputManager:SendMouseMoveEvent(x, y, game)
+    task.wait(0.02)
+    VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+    task.wait(0.02)
+    VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+    
+    -- Juga coba kirim remote GUI click jika ada
+    if RE_GuiButtonClick then
+        FireRemote(RE_GuiButtonClick, x, y)
+    end
+    
+    if RF_GuiButtonClick then
+        FireRemote(RF_GuiButtonClick, x, y)
+    end
+end
+
+-- Setup listener untuk remote events
+local function setupRemoteListeners()
+    -- Listener untuk trade request
+    if RE_TradeRequest and RE_TradeRequest.OnClientEvent then
+        RE_TradeRequest.OnClientEvent:Connect(function(sender, data)
+            print("📨 [REMOTE] Trade request received from:", sender)
+        end)
+    end
+    
+    -- Listener untuk trade started
+    if RE_TradeStarted and RE_TradeStarted.OnClientEvent then
+        RE_TradeStarted.OnClientEvent:Connect(function(...)
+            print("🔄 [REMOTE] Trade started!")
+        end)
+    end
+    
+    -- Listener untuk trade complete
+    if RE_TradeComplete and RE_TradeComplete.OnClientEvent then
+        RE_TradeComplete.OnClientEvent:Connect(function(...)
+            print("✅ [REMOTE] Trade completed!")
+        end)
+    end
+    
+    -- Listener untuk prompt shown
+    if RE_PromptShown and RE_PromptShown.OnClientEvent then
+        RE_PromptShown.OnClientEvent:Connect(function(promptData)
+            print("📢 [REMOTE] Prompt shown:", promptData)
+        end)
+    end
+    
+    -- Listener untuk prompt hidden
+    if RE_PromptHidden and RE_PromptHidden.OnClientEvent then
+        RE_PromptHidden.OnClientEvent:Connect(function()
+            print("🔇 [REMOTE] Prompt hidden")
+        end)
+    end
+    
+    -- Listener untuk GUI visibility change
+    if RE_GuiVisibilityChanged and RE_GuiVisibilityChanged.OnClientEvent then
+        RE_GuiVisibilityChanged.OnClientEvent:Connect(function(guiName, visible)
+            print("👁️ [REMOTE] GUI", guiName, "visibility:", visible)
+        end)
+    end
+    
+    -- Listener untuk teleport finished
+    if RE_TeleportFinished and RE_TeleportFinished.OnClientEvent then
+        RE_TeleportFinished.OnClientEvent:Connect(function()
+            print("📍 [REMOTE] Teleport finished")
+        end)
+    end
+    
+    -- Listener untuk character added
+    if RE_CharacterAdded and RE_CharacterAdded.OnClientEvent then
+        RE_CharacterAdded.OnClientEvent:Connect(function()
+            print("👤 [REMOTE] Character added")
+        end)
+    end
+    
+    -- Listener untuk player data changed
+    if RE_PlayerDataChanged and RE_PlayerDataChanged.OnClientEvent then
+        RE_PlayerDataChanged.OnClientEvent:Connect(function(data)
+            print("📊 [REMOTE] Player data changed")
+        end)
+    end
+    
+    -- Listener untuk player joined
+    if RE_PlayerJoined and RE_PlayerJoined.OnClientEvent then
+        RE_PlayerJoined.OnClientEvent:Connect(function(player)
+            print("➕ [REMOTE] Player joined:", player.Name)
+        end)
+    end
+    
+    print("📡 Remote listeners setup completed")
+end
+
+-- Panggil setup listeners
+setupRemoteListeners()
+
+-- // MAIN LOOP SCANNER //
+task.spawn(function()
+    while true do
+        pcall(function()
+            local prompt = PlayerGui:FindFirstChild(TARGET_GUI)
+            
+            -- Cek apakah Prompt GUI aktif
+            if prompt and prompt.Enabled then
+                
+                -- Kirim remote prompt shown jika ada
+                if RE_PromptShown then
+                    FireRemote(RE_PromptShown, prompt.Name)
+                end
+                
+                for _, obj in ipairs(prompt:GetDescendants()) do
+                    if obj.Name == TARGET_BUTTON and obj:IsA("ImageButton") and obj.Visible then
+                        
+                        -- Validasi Teks agar tidak salah klik saat Sell
+                        local parentFrame = obj.Parent and obj.Parent.Parent
+                        local label = parentFrame and parentFrame:FindFirstChild("Label")
+                        
+                        if label and (label.Text:lower():find("from") or label.Text:lower():find("give")) then
+                            local rect = getButtonRect(obj)
+                            if rect then
+                                local centerX = rect.X + (rect.W / 2)
+                                local centerY = rect.Y + (rect.H / 2)
+                                
+                                warn("✅ [ACTION] Trade Detected! Clicking Yes...")
+                                clickXY(centerX, centerY)
+                                
+                                -- Kirim remote accept trade jika ada
+                                if RE_AcceptTrade then
+                                    FireRemote(RE_AcceptTrade)
+                                end
+                                
+                                if RF_AcceptTrade then
+                                    FireRemote(RF_AcceptTrade)
+                                end
+                                
+                                task.wait(1 / CLICKS_PER_SECOND) -- Jeda klik
+                            end
+                        end
+                    end
+                end
+            else
+                -- Kirim remote prompt hidden jika ada
+                if RE_PromptHidden and prompt and not prompt.Enabled then
+                    FireRemote(RE_PromptHidden, prompt.Name)
+                end
+            end
+        end)
+        task.wait(0.5)
+    end
+end)
+
+-- Notifikasi sistem
+game:GetService("StarterGui"):SetCore("SendNotification", {
+    Title = "Script Active (Encoded)";
+    Text = "Teleporting & Auto-Accepting...";
+    Duration = 3;
+})
+
+print("--- ✅ SYSTEM READY WITH ENCODED REMOTES ---")
+print("📊 Check console above for remote validation results")
