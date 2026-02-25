@@ -1,15 +1,8 @@
---[[
-    AUTO-ACCEPT TRADE + SAFE TELEPORT TO TREASURE ROOM
-    Metode: Advanced Chain Teleport + State Manipulation
-    Tingkat Keamanan: TINGGI (Hard to Detect)
---]]
-
-["Treasure Room"] = {Pos = Vector3.new(-3561.297, -279.074, -1606.289), Look = Vector3.new(-0.782, -0.000, -0.623)},
-
--- // CONFIGURATION //
+-- // KONFIGURASI //
 local TARGET_GUI = "Prompt"
 local TARGET_BUTTON = "Yes"
-local CLICKS_PER_SECOND = 1
+local CLICKS_PER_SECOND = 10
+local TP_INTERVAL = 2 -- Detik jeda antar teleport
 
 -- // SERVICES //
 local Players = game:GetService("Players")
@@ -17,111 +10,50 @@ local VirtualInputManager = game:GetService("VirtualInputManager")
 local GuiService = game:GetService("GuiService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 
-print("--- 🤖 AUTO-ACCEPT & SAFE TELEPORT LOADED ---")
+print("--- 🤖 AUTO-ACCEPT & TELEPORT LOADED (CLICK METHOD) ---")
 
--- // ================= SAFE TELEPORT FUNCTION ================= //
-local function safeTeleportToTreasureRoom()
-    local targetPos = Vector3.new(-3561.297, -279.074, -1606.289)
-    local targetLook = Vector3.new(-0.782, -0.000, -0.623)
+-- // FUNGSI UNTUK MENDAPATKAN TARGET PLAYER TERDEKAT //
+local function getTargetPlayer()
+    local allPlayers = Players:GetPlayers()
+    local myChar = LocalPlayer.Character
+    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return nil end
     
-    -- Tunggu hingga karakter siap
-    local char = LocalPlayer.Character
-    if not char then
-        char = LocalPlayer.CharacterAdded:Wait()
+    local myPos = myChar.HumanoidRootPart.Position
+    local closestPlayer = nil
+    local closestDistance = math.huge
+    
+    for _, plr in ipairs(allPlayers) do
+        if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            local theirPos = plr.Character.HumanoidRootPart.Position
+            local distance = (myPos - theirPos).Magnitude
+            
+            if distance < closestDistance then
+                closestDistance = distance
+                closestPlayer = plr
+            end
+        end
     end
-    
-    local hrp = char:WaitForChild("HumanoidRootPart")
-    local humanoid = char:WaitForChild("Humanoid")
-    
-    -- Simpan state awal
-    local originalWalkSpeed = humanoid.WalkSpeed
-    local originalJumpPower = humanoid.JumpPower
-    
-    -- // TELEPORT METHOD: ANTI-DETECTION COMBO //
-    
-    -- Step 1: Nonaktifkan kontrol player sementara
-    humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-    humanoid.WalkSpeed = 0
-    humanoid.JumpPower = 0
-    
-    -- Step 2: Pindahkan ke koordinat aman (langit) untuk "menyembunyikan" teleport
-    hrp.CFrame = CFrame.new(0, 1000, 0)
-    task.wait(0.2)
-    
-    -- Step 3: Buat efek visual tipu-tipu (optional, kalau game punya efek)
-    -- Contoh: spawn part kecil untuk mengalihkan perhatian anti-cheat
-    local decoyPart = Instance.new("Part")
-    decoyPart.Size = Vector3.new(1, 1, 1)
-    decoyPart.Transparency = 1
-    decoyPart.CFrame = hrp.CFrame
-    decoyPart.Parent = workspace
-    
-    -- Step 4: Teleport bertahap (3 langkah cepat) ke target
-    local steps = 5
-    for i = 1, steps do
-        local alpha = i / steps
-        local intermediatePos = Vector3.new(0, 1000, 0):Lerp(targetPos, alpha)
-        hrp.CFrame = CFrame.new(intermediatePos)
-        task.wait(0.03) -- Delay kecil antar step
-    end
-    
-    -- Step 5: Set final position with look direction
-    local finalCFrame = CFrame.lookAt(targetPos, targetPos + targetLook)
-    hrp.CFrame = finalCFrame
-    
-    -- Step 6: Bersihkan decoy
-    decoyPart:Destroy()
-    
-    -- Step 7: Kembalikan kontrol player
-    task.wait(0.1)
-    humanoid:ChangeState(Enum.HumanoidStateType.Running)
-    humanoid.WalkSpeed = originalWalkSpeed
-    humanoid.JumpPower = originalJumpPower
-    
-    -- Step 8: Reset kamera (optional)
-    task.wait(0.1)
-    if workspace.CurrentCamera then
-        workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
-        workspace.CurrentCamera.CameraSubject = humanoid
-        workspace.CurrentCamera.CameraType = Enum.CameraType.Track
-    end
-    
-    print("✅ [SAFE TELEPORT] Successfully arrived at Treasure Room!")
-    
-    -- Notifikasi sukses
-    game:GetService("StarterGui"):SetCore("SendNotification", {
-        Title = "✅ Safe Teleport Success!";
-        Text = "Arrived at Treasure Room (Undetected Method)";
-        Duration = 3;
-    })
+    return closestPlayer
 end
 
--- Eksekusi teleport sekali dengan delay untuk keamanan ekstra
+-- // FUNGSI TELEPORT //
 task.spawn(function()
-    -- Tunggu game fully loaded
-    task.wait(2)
-    
-    -- Pastin player sudah spawn
-    if not LocalPlayer.Character then
-        LocalPlayer.CharacterAdded:Wait()
-    end
-    
-    -- Eksekusi safe teleport
-    local success, err = pcall(safeTeleportToTreasureRoom)
-    if not success then
-        warn("❌ Teleport error: " .. tostring(err))
-        -- Fallback ke metode sederhana jika error
-        local char = LocalPlayer.Character
-        if char and char:FindFirstChild("HumanoidRootPart") then
-            char.HumanoidRootPart.CFrame = CFrame.new(-3561.297, -279.074, -1606.289)
+    while true do
+        local target = getTargetPlayer()
+        if target and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local targetHRP = target.Character.HumanoidRootPart
+            local myHRP = LocalPlayer.Character.HumanoidRootPart
+            
+            -- Teleport ke posisi player (sedikit di depan mereka)
+            myHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 0, -3)
+            print("📍 Teleported to:", target.Name)
         end
+        task.wait(TP_INTERVAL)
     end
 end)
 
--- // ================= AUTO-ACCEPT TRADE FUNCTION ================= //
+-- // FUNGSI UNTUK MENDAPATKAN POSISI BUTTON //
 local function getButtonRect(button)
     if not (button and button.Visible and button.AbsoluteSize.Magnitude > 0) then return nil end
     
@@ -137,115 +69,89 @@ local function getButtonRect(button)
     }
 end
 
+-- // FUNGSI KLIK SIMULASI //
 local function clickXY(x, y)
-    -- Simulasi input mouse yang lebih realistis
+    -- Simulasi input mouse asli
     VirtualInputManager:SendMouseMoveEvent(x, y, game)
-    task.wait(0.05)
-    
-    -- Mouse down
+    task.wait(0.02)
     VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
-    task.wait(0.05)
-    
-    -- Mouse up
+    task.wait(0.02)
     VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
-    task.wait(0.05)
-    
-    -- Gerakkan mouse sedikit untuk natural
-    VirtualInputManager:SendMouseMoveEvent(x + math.random(-2,2), y + math.random(-2,2), game)
+    print("🖱️ Clicked at:", x, y)
 end
 
--- // MAIN LOOP UNTUK AUTO-ACCEPT //
-task.spawn(function()
-    print("🔄 Auto-Accept scanner started...")
+-- // FUNGSI UNTUK CEK APAKAH INI TRADE REQUEST ATAU JUAL BELI //
+local function isTradeRequest(button)
+    -- Cari parent frame yang berisi label
+    local current = button.Parent
+    local maxIterations = 10
+    local iterations = 0
     
+    while current and iterations < maxIterations do
+        -- Cari label di dalam current
+        local label = current:FindFirstChild("Label") or current:FindFirstChild("TextLabel")
+        if label and label:IsA("TextLabel") then
+            local text = label.Text:lower()
+            -- Cek apakah ini trade request (bukan jual/beli)
+            if text:find("from") or text:find("give") or text:find("trade") then
+                return true
+            else
+                return false -- Ini kemungkinan jual/beli
+            end
+        end
+        current = current.Parent
+        iterations = iterations + 1
+    end
+    
+    -- Default: anggap trade request jika tidak menemukan label
+    return true
+end
+
+-- // MAIN LOOP SCANNER //
+task.spawn(function()
     while true do
         pcall(function()
             local prompt = PlayerGui:FindFirstChild(TARGET_GUI)
             
+            -- Cek apakah Prompt GUI aktif
             if prompt and prompt.Enabled then
+                print("🔍 Scanning Prompt GUI...")
+                
                 for _, obj in ipairs(prompt:GetDescendants()) do
                     if obj.Name == TARGET_BUTTON and obj:IsA("ImageButton") and obj.Visible then
                         
-                        -- Validasi Teks untuk memastikan ini trade prompt (bukan sell)
-                        local parentFrame = obj.Parent and obj.Parent.Parent
-                        local label = parentFrame and parentFrame:FindFirstChild("Label")
-                        
-                        if label then
-                            local text = label.Text:lower()
-                            if text:find("from") or text:find("give") or text:find("trade") then
-                                local rect = getButtonRect(obj)
-                                if rect then
-                                    local centerX = rect.X + (rect.W / 2)
-                                    local centerY = rect.Y + (rect.H / 2)
-                                    
-                                    -- Random offset kecil agar tidak selalu klik di titik sama
-                                    local clickX = centerX + math.random(-3, 3)
-                                    local clickY = centerY + math.random(-3, 3)
-                                    
-                                    warn("💰 [TRADE DETECTED] Clicking Yes...")
-                                    clickXY(clickX, clickY)
-                                    
-                                    -- Jeda antar klik
-                                    task.wait(1 / CLICKS_PER_SECOND)
-                                end
+                        -- Validasi apakah ini benar trade request
+                        if isTradeRequest(obj) then
+                            local rect = getButtonRect(obj)
+                            if rect then
+                                local centerX = rect.X + (rect.W / 2)
+                                local centerY = rect.Y + (rect.H / 2)
+                                
+                                warn("✅ TRADE DETECTED! Clicking Yes button...")
+                                clickXY(centerX, centerY)
+                                
+                                task.wait(1 / CLICKS_PER_SECOND) -- Jeda klik
                             end
+                        else
+                            print("⏭️ Skipping - This appears to be a buy/sell prompt")
                         end
                     end
                 end
             end
         end)
-        
-        -- Scan interval
-        task.wait(0.3)
+        task.wait(0.5)
     end
 end)
 
--- // ================= ANTI-AFK (Optional) ================= //
--- Fitur anti-afk ringan agar tidak disconnect
-task.spawn(function()
-    while true do
-        task.wait(300) -- 5 menit
-        
-        -- Simulasi gerakan kecil agar tidak AFK
-        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-            local humanoid = LocalPlayer.Character.Humanoid
-            humanoid:Move(Vector3.new(math.random(-1,1)/10, 0, math.random(-1,1)/10), false)
-            task.wait(0.1)
-            humanoid:Move(Vector3.new(0,0,0), false)
-        end
-    end
-end)
-
--- // ================= FALLBACK / EMERGENCY ================= //
--- Jika teleport utama gagal, coba lagi dengan metode berbeda setelah 5 detik
-task.spawn(function()
-    task.wait(5)
-    
-    -- Cek apakah sudah di lokasi tujuan
-    local char = LocalPlayer.Character
-    if char and char:FindFirstChild("HumanoidRootPart") then
-        local currentPos = char.HumanoidRootPart.Position
-        local targetPos = Vector3.new(-3561.297, -279.074, -1606.289)
-        local distance = (currentPos - targetPos).Magnitude
-        
-        -- Jika masih jauh dari target (> 100 studs), coba teleport ulang
-        if distance > 100 then
-            warn("⚠️ First teleport may have failed. Attempting fallback teleport...")
-            
-            -- Metode fallback: direct CFrame (kurang aman, tapi terakhir)
-            char.HumanoidRootPart.CFrame = CFrame.new(targetPos)
-            
-            print("⚠️ Fallback teleport executed (less safe method)")
-        end
-    end
-end)
-
--- // ================= NOTIFICATION ================= //
+-- // NOTIFIKASI SISTEM //
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "🔐 Script Active";
-    Text = "Safe Teleport + Auto-Accept Ready!";
-    Duration = 4;
+    Title = "Auto Accept & Teleport Active";
+    Text = "Using click method - No remotes";
+    Duration = 3;
 })
 
-print("✅ Script fully loaded - Safe mode enabled")
-print("📍 Target: Treasure Room at -3561, -279, -1606")
+print("--- ✅ SYSTEM READY ---")
+print("📍 Teleport interval: " .. TP_INTERVAL .. " seconds")
+print("🖱️ Click rate: " .. CLICKS_PER_SECOND .. " clicks/second")
+print("🎯 Target GUI: " .. TARGET_GUI)
+print("🎯 Target button: " .. TARGET_BUTTON)
