@@ -105,7 +105,7 @@ task.spawn(function()
                                 clickXY(centerX, centerY)
                                 
                                 -- Jeda acak 1.5 - 2.0 detik sesuai permintaan
-                                local randomClickDelay = math.random(15, 20) / 10 
+                                local randomClickDelay = math.random(30, 35) / 10 
                                 print("⏳ Menunggu " .. randomClickDelay .. " detik sebelum iterasi berikutnya...")
                                 task.wait(randomClickDelay)
                             end
