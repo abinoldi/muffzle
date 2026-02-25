@@ -2,8 +2,8 @@
 local TARGET_GUI = "Prompt"
 local TARGET_BUTTON = "Yes"
 local CLICKS_PER_SECOND = 1
-local TP_INTERVAL = 2 -- Detik jeda antar teleport
-local MAX_TELEPORTS = 3 -- Maksimal 3x teleport
+local TP_INTERVAL = 5 -- Detik jeda antar teleport
+local MAX_TELEPORTS = 2 -- Maksimal 3x teleport
 
 -- // SERVICES //
 local Players = game:GetService("Players")
