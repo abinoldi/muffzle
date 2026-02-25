@@ -1,9 +1,12 @@
 -- // KONFIGURASI //
 local TARGET_GUI = "Prompt"
 local TARGET_BUTTON = "Yes"
-local TWEEN_SPEED = 150 -- Kecepatan terbang (studs/detik). Kurangi jika game mendeteksi speedhack.
 
--- // DATA LOKASI (UPDATED) //
+-- Pengaturan Blink Teleport
+local STEP_DISTANCE = 50 -- Jarak maksimal per lompatan (jangan terlalu besar agar tidak kena anti-cheat)
+local STEP_DELAY = 0.03 -- Jeda per lompatan (sangat cepat, agar tidak sempat tenggelam)
+
+-- // DATA LOKASI //
 local locations = {
     ["Treasure Room"] = {
         Pos = Vector3.new(-3561.297, -279.074, -1606.289), 
@@ -15,52 +18,65 @@ local locations = {
 local Players = game:GetService("Players")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local GuiService = game:GetService("GuiService")
-local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-print("--- 🤖 AUTO-ACCEPT & SAFE TELEPORT LOADED ---")
-print("📊 Koordinat: Treasure Room (Updated)")
+---------------------------------------------------------
+-- // JEDA 10 DETIK SEBELUM MEMULAI SEMUA PROSES //
+print("--- 🤖 SCRIPT TER-EXECUTE ---")
+print("⏳ Menunggu 10 detik agar map & UI ter-load sepenuhnya...")
 
--- // FUNGSI TELEPORT AMAN DENGAN TWEENSERVICE //
-task.spawn(function()
-    task.wait(2) -- Beri waktu agar karakter load sepenuhnya
+-- Notifikasi awal
+game:GetService("StarterGui"):SetCore("SendNotification", {
+    Title = "Script Ter-Execute";
+    Text = "Menunggu 10 detik sebelum memulai proses...";
+    Duration = 5;
+})
+
+task.wait(10) -- << INI ADALAH JEDA 10 DETIKNYA
+
+print("--- 🚀 MEMULAI AUTO-ACCEPT & BLINK TELEPORT ---")
+---------------------------------------------------------
+
+-- // FUNGSI BLINK TELEPORT (TELEPORT BERTAHAP) //
+local function blinkTeleport(targetCFrame)
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
     
-    local locData = locations["Treasure Room"]
-    local myChar = LocalPlayer.Character
+    local hrp = char.HumanoidRootPart
+    local startPos = hrp.Position
+    local targetPos = targetCFrame.Position
+    local distance = (targetPos - startPos).Magnitude
     
-    if myChar and myChar:FindFirstChild("HumanoidRootPart") then
-        local hrp = myChar.HumanoidRootPart
-        local targetCFrame = CFrame.lookAt(locData.Pos, locData.Pos + locData.Look)
+    -- Hitung butuh berapa kali lompatan
+    local steps = math.ceil(distance / STEP_DISTANCE)
+    
+    print("🚀 Memulai Blink Teleport! Jarak: " .. math.floor(distance) .. " studs | Lompatan: " .. steps .. "x")
+    
+    -- Matikan pergerakan physics sementara agar tidak jatuh ke bawah map
+    hrp.Anchored = true 
+    
+    for i = 1, steps do
+        local alpha = i / steps
+        -- Mencari titik di antara posisi awal dan akhir (Lerp)
+        local nextPos = startPos:Lerp(targetPos, alpha)
         
-        -- Hitung jarak dan waktu tempuh berdasarkan kecepatan
-        local distance = (hrp.Position - locData.Pos).Magnitude
-        local timeToTravel = distance / TWEEN_SPEED
+        -- Gabungkan posisi baru dengan rotasi arah pandangan target
+        local nextCFrame = CFrame.new(nextPos) * targetCFrame.Rotation
         
-        print("🚀 Memulai penerbangan (Tween) ke Treasure Room...")
-        print("⏱️ Estimasi waktu tempuh: " .. string.format("%.2f", timeToTravel) .. " detik.")
-        
-        -- Matikan gravitasi sementara agar tidak jatuh saat proses Tween
-        local bv = Instance.new("BodyVelocity")
-        bv.Velocity = Vector3.new(0, 0, 0)
-        bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-        bv.Parent = hrp
-        
-        -- Setup Tween
-        local tweenInfo = TweenInfo.new(timeToTravel, Enum.EasingStyle.Linear)
-        local tween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCFrame})
-        
-        tween:Play()
-        
-        -- Tunggu sampai penerbangan selesai
-        tween.Completed:Wait()
-        
-        -- Hapus anti-gravitasi setelah sampai
-        bv:Destroy()
-        print("📍 [AMAN] Berhasil tiba di Treasure Room!")
-    else
-        warn("⚠️ Gagal Teleport: Karakter belum siap.")
+        char:PivotTo(nextCFrame)
+        task.wait(STEP_DELAY) -- Jeda kilat agar anti-cheat sempat mendaftarkan posisi baru
     end
+    
+    hrp.Anchored = false
+    print("📍 [AMAN] Berhasil tiba di lokasi tanpa tenggelam!")
+end
+
+-- // EKSEKUSI TELEPORT KE TREASURE ROOM //
+task.spawn(function()
+    local locData = locations["Treasure Room"]
+    local targetCFrame = CFrame.lookAt(locData.Pos, locData.Pos + locData.Look)
+    blinkTeleport(targetCFrame)
 end)
 
 -- // FUNGSI UNTUK MENDAPATKAN POSISI BUTTON //
@@ -72,7 +88,7 @@ local function getButtonRect(button)
     return { X = absPos.X, Y = absPos.Y + guiInset.Y, W = absSize.X, H = absSize.Y }
 end
 
--- // FUNGSI KLIK SIMULASI (PALING AMAN) //
+-- // FUNGSI KLIK SIMULASI (VIRTUAL INPUT) //
 local function clickXY(x, y)
     VirtualInputManager:SendMouseMoveEvent(x, y, game)
     task.wait(0.02)
@@ -136,7 +152,7 @@ end)
 
 -- // NOTIFIKASI SISTEM //
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "Auto Script Active";
-    Text = "Tweening to Treasure Room... Auto Accept Ready!";
+    Title = "Script Active";
+    Text = "Blink Teleporting & Auto Accept Ready!";
     Duration = 4;
 })
