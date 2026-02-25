@@ -1,12 +1,13 @@
 -- // KONFIGURASI //
 local TARGET_GUI = "Prompt"
 local TARGET_BUTTON = "Yes"
+local TWEEN_SPEED = 150 -- Kecepatan terbang (studs/detik). Kurangi jika game mendeteksi speedhack.
 
--- // DATA LOKASI //
+-- // DATA LOKASI (UPDATED) //
 local locations = {
     ["Treasure Room"] = {
-        Pos = Vector3.new(-3598.440, -281.274, -1645.855), 
-        Look = Vector3.new(-0.065, 0.000, -0.998)
+        Pos = Vector3.new(-3561.297, -279.074, -1606.289), 
+        Look = Vector3.new(-0.782, -0.000, -0.623)
     }
 }
 
@@ -14,26 +15,49 @@ local locations = {
 local Players = game:GetService("Players")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local GuiService = game:GetService("GuiService")
+local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-print("--- 🤖 AUTO-ACCEPT & TELEPORT TO TREASURE ROOM LOADED ---")
-print("📊 Konfigurasi: Teleport 1x ke Treasure Room | Random Click Delay 1.0s - 1.5s")
+print("--- 🤖 AUTO-ACCEPT & SAFE TELEPORT LOADED ---")
+print("📊 Koordinat: Treasure Room (Updated)")
 
--- // FUNGSI TELEPORT AMAN KE TREASURE ROOM (HANYA 1 KALI) //
+-- // FUNGSI TELEPORT AMAN DENGAN TWEENSERVICE //
 task.spawn(function()
-    task.wait(1) -- Beri waktu sebentar agar karaktermu load dengan sempurna
+    task.wait(2) -- Beri waktu agar karakter load sepenuhnya
     
     local locData = locations["Treasure Room"]
     local myChar = LocalPlayer.Character
     
     if myChar and myChar:FindFirstChild("HumanoidRootPart") then
-        -- Menggabungkan Posisi dan Arah Pandangan (Look) menjadi CFrame
+        local hrp = myChar.HumanoidRootPart
         local targetCFrame = CFrame.lookAt(locData.Pos, locData.Pos + locData.Look)
         
-        -- Menggunakan PivotTo agar teleportasi aman dan tidak nyangkut
-        myChar:PivotTo(targetCFrame)
-        print("📍 [AMAN] Berhasil teleport 1x ke: Treasure Room")
+        -- Hitung jarak dan waktu tempuh berdasarkan kecepatan
+        local distance = (hrp.Position - locData.Pos).Magnitude
+        local timeToTravel = distance / TWEEN_SPEED
+        
+        print("🚀 Memulai penerbangan (Tween) ke Treasure Room...")
+        print("⏱️ Estimasi waktu tempuh: " .. string.format("%.2f", timeToTravel) .. " detik.")
+        
+        -- Matikan gravitasi sementara agar tidak jatuh saat proses Tween
+        local bv = Instance.new("BodyVelocity")
+        bv.Velocity = Vector3.new(0, 0, 0)
+        bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        bv.Parent = hrp
+        
+        -- Setup Tween
+        local tweenInfo = TweenInfo.new(timeToTravel, Enum.EasingStyle.Linear)
+        local tween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCFrame})
+        
+        tween:Play()
+        
+        -- Tunggu sampai penerbangan selesai
+        tween.Completed:Wait()
+        
+        -- Hapus anti-gravitasi setelah sampai
+        bv:Destroy()
+        print("📍 [AMAN] Berhasil tiba di Treasure Room!")
     else
         warn("⚠️ Gagal Teleport: Karakter belum siap.")
     end
@@ -42,22 +66,14 @@ end)
 -- // FUNGSI UNTUK MENDAPATKAN POSISI BUTTON //
 local function getButtonRect(button)
     if not (button and button.Visible and button.AbsoluteSize.Magnitude > 0) then return nil end
-    
     local absPos = button.AbsolutePosition
     local absSize = button.AbsoluteSize
     local guiInset = GuiService:GetGuiInset()
-    
-    return {
-        X = absPos.X,
-        Y = absPos.Y + guiInset.Y,
-        W = absSize.X,
-        H = absSize.Y
-    }
+    return { X = absPos.X, Y = absPos.Y + guiInset.Y, W = absSize.X, H = absSize.Y }
 end
 
--- // FUNGSI KLIK SIMULASI //
+-- // FUNGSI KLIK SIMULASI (PALING AMAN) //
 local function clickXY(x, y)
-    -- Simulasi input mouse asli
     VirtualInputManager:SendMouseMoveEvent(x, y, game)
     task.wait(0.02)
     VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
@@ -66,30 +82,24 @@ local function clickXY(x, y)
     print("🖱️ Clicked at:", x, y)
 end
 
--- // FUNGSI UNTUK CEK APAKAH INI TRADE REQUEST ATAU JUAL BELI //
+-- // FUNGSI VALIDASI TRADE //
 local function isTradeRequest(button)
-    -- Cari parent frame yang berisi label
     local current = button.Parent
     local maxIterations = 10
     local iterations = 0
-    
     while current and iterations < maxIterations do
-        -- Cari label di dalam current
         local label = current:FindFirstChild("Label") or current:FindFirstChild("TextLabel")
         if label and label:IsA("TextLabel") then
             local text = label.Text:lower()
-            -- Cek apakah ini trade request (bukan jual/beli)
             if text:find("from") or text:find("give") or text:find("trade") then
                 return true
             else
-                return false -- Ini kemungkinan jual/beli
+                return false
             end
         end
         current = current.Parent
         iterations = iterations + 1
     end
-    
-    -- Default: anggap trade request jika tidak menemukan label
     return true
 end
 
@@ -98,15 +108,9 @@ task.spawn(function()
     while true do
         pcall(function()
             local prompt = PlayerGui:FindFirstChild(TARGET_GUI)
-            
-            -- Cek apakah Prompt GUI aktif
             if prompt and prompt.Enabled then
-                print("🔍 Scanning Prompt GUI...")
-                
                 for _, obj in ipairs(prompt:GetDescendants()) do
                     if obj.Name == TARGET_BUTTON and obj:IsA("ImageButton") and obj.Visible then
-                        
-                        -- Validasi apakah ini benar trade request
                         if isTradeRequest(obj) then
                             local rect = getButtonRect(obj)
                             if rect then
@@ -116,31 +120,23 @@ task.spawn(function()
                                 warn("✅ TRADE DETECTED! Clicking Yes button...")
                                 clickXY(centerX, centerY)
                                 
-                                -- Menghasilkan angka acak antara 10 hingga 15, dibagi 10 = 1.0 hingga 1.5 detik
+                                -- Random delay 1.0 - 1.5 detik
                                 local randomClickDelay = math.random(10, 15) / 10 
-                                print("⏳ Menunggu selama " .. randomClickDelay .. " detik sebelum iterasi berikutnya...")
+                                print("⏳ Menunggu " .. randomClickDelay .. " detik...")
                                 task.wait(randomClickDelay)
                             end
-                        else
-                            print("⏭️ Skipping - This appears to be a buy/sell prompt")
                         end
                     end
                 end
             end
         end)
-        task.wait(0.5) -- Scan setiap 0.5 detik
+        task.wait(0.5)
     end
 end)
 
 -- // NOTIFIKASI SISTEM //
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "Auto Accept & Teleport";
-    Text = "Teleporting to Treasure Room... Auto Accept Ready!";
-    Duration = 3;
+    Title = "Auto Script Active";
+    Text = "Tweening to Treasure Room... Auto Accept Ready!";
+    Duration = 4;
 })
-
-print("--- ✅ SYSTEM READY ---")
-print("📍 Lokasi Teleport: Treasure Room")
-print("⏱️ Delay Klik: 1.0 - 1.5 detik (Random)")
-print("🎯 Target GUI: " .. TARGET_GUI)
-print("🎯 Target button: " .. TARGET_BUTTON)
