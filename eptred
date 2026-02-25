@@ -1,5 +1,6 @@
 --[[
     AUTO-ACCEPT TRADE + SAFE TELEPORT TO TREASURE ROOM
+    Dengan delay 10 detik saat start
     Metode: Advanced Chain Teleport + State Manipulation
     Tingkat Keamanan: TINGGI (Hard to Detect)
 --]]
@@ -10,6 +11,7 @@
 local TARGET_GUI = "Prompt"
 local TARGET_BUTTON = "Yes"
 local CLICKS_PER_SECOND = 1
+local START_DELAY = 10 -- Delay 10 detik sebelum aktivasi
 
 -- // SERVICES //
 local Players = game:GetService("Players")
@@ -21,6 +23,25 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 print("--- 🤖 AUTO-ACCEPT & SAFE TELEPORT LOADED ---")
+print("⏳ Delay aktivasi: " .. START_DELAY .. " detik")
+
+-- // ================= COUNTDOWN NOTIFICATION ================= //
+local function showCountdown(seconds)
+    for i = seconds, 1, -1 do
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "⏳ Script Starting in " .. i .. "s";
+            Text = "Prepare yourself...";
+            Duration = 1;
+        })
+        task.wait(1)
+    end
+    
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "🚀 Script Activated!";
+        Text = "Safe Teleport & Auto-Accept Ready";
+        Duration = 3;
+    })
+end
 
 -- // ================= SAFE TELEPORT FUNCTION ================= //
 local function safeTeleportToTreasureRoom()
@@ -99,28 +120,6 @@ local function safeTeleportToTreasureRoom()
     })
 end
 
--- Eksekusi teleport sekali dengan delay untuk keamanan ekstra
-task.spawn(function()
-    -- Tunggu game fully loaded
-    task.wait(2)
-    
-    -- Pastin player sudah spawn
-    if not LocalPlayer.Character then
-        LocalPlayer.CharacterAdded:Wait()
-    end
-    
-    -- Eksekusi safe teleport
-    local success, err = pcall(safeTeleportToTreasureRoom)
-    if not success then
-        warn("❌ Teleport error: " .. tostring(err))
-        -- Fallback ke metode sederhana jika error
-        local char = LocalPlayer.Character
-        if char and char:FindFirstChild("HumanoidRootPart") then
-            char.HumanoidRootPart.CFrame = CFrame.new(-3561.297, -279.074, -1606.289)
-        end
-    end
-end)
-
 -- // ================= AUTO-ACCEPT TRADE FUNCTION ================= //
 local function getButtonRect(button)
     if not (button and button.Visible and button.AbsoluteSize.Magnitude > 0) then return nil end
@@ -154,9 +153,56 @@ local function clickXY(x, y)
     VirtualInputManager:SendMouseMoveEvent(x + math.random(-2,2), y + math.random(-2,2), game)
 end
 
--- // MAIN LOOP UNTUK AUTO-ACCEPT //
+-- // ================= ANTI-AFK FUNCTION ================= //
+local function startAntiAFK()
+    task.spawn(function()
+        while true do
+            task.wait(300) -- 5 menit
+            
+            -- Simulasi gerakan kecil agar tidak AFK
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                local humanoid = LocalPlayer.Character.Humanoid
+                humanoid:Move(Vector3.new(math.random(-1,1)/10, 0, math.random(-1,1)/10), false)
+                task.wait(0.1)
+                humanoid:Move(Vector3.new(0,0,0), false)
+            end
+        end
+    end)
+end
+
+-- // ================= MAIN EXECUTION WITH DELAY ================= //
 task.spawn(function()
-    print("🔄 Auto-Accept scanner started...")
+    -- Tampilkan countdown
+    showCountdown(START_DELAY)
+    
+    -- Tunggu game fully loaded
+    task.wait(2)
+    
+    -- Pastikan player sudah spawn
+    if not LocalPlayer.Character then
+        LocalPlayer.CharacterAdded:Wait()
+    end
+    
+    -- Eksekusi safe teleport
+    print("📍 Executing safe teleport to Treasure Room...")
+    local success, err = pcall(safeTeleportToTreasureRoom)
+    if not success then
+        warn("❌ Teleport error: " .. tostring(err))
+        -- Fallback ke metode sederhana jika error
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            char.HumanoidRootPart.CFrame = CFrame.new(-3561.297, -279.074, -1606.289)
+            print("⚠️ Fallback teleport executed")
+        end
+    end
+end)
+
+-- // ================= AUTO-ACCEPT STARTER WITH DELAY ================= //
+task.spawn(function()
+    -- Delay yang sama untuk auto-accept
+    task.wait(START_DELAY)
+    
+    print("🔄 Auto-Accept scanner started after " .. START_DELAY .. "s delay...")
     
     while true do
         pcall(function()
@@ -200,26 +246,16 @@ task.spawn(function()
     end
 end)
 
--- // ================= ANTI-AFK (Optional) ================= //
--- Fitur anti-afk ringan agar tidak disconnect
+-- // ================= ANTI-AFK STARTER WITH DELAY ================= //
 task.spawn(function()
-    while true do
-        task.wait(300) -- 5 menit
-        
-        -- Simulasi gerakan kecil agar tidak AFK
-        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-            local humanoid = LocalPlayer.Character.Humanoid
-            humanoid:Move(Vector3.new(math.random(-1,1)/10, 0, math.random(-1,1)/10), false)
-            task.wait(0.1)
-            humanoid:Move(Vector3.new(0,0,0), false)
-        end
-    end
+    task.wait(START_DELAY)
+    startAntiAFK()
+    print("🔄 Anti-AFK activated after " .. START_DELAY .. "s delay")
 end)
 
--- // ================= FALLBACK / EMERGENCY ================= //
--- Jika teleport utama gagal, coba lagi dengan metode berbeda setelah 5 detik
+-- // ================= FALLBACK / EMERGENCY (WITH DELAY) ================= //
 task.spawn(function()
-    task.wait(5)
+    task.wait(START_DELAY + 5) -- 5 detik setelah aktivasi
     
     -- Cek apakah sudah di lokasi tujuan
     local char = LocalPlayer.Character
@@ -236,16 +272,22 @@ task.spawn(function()
             char.HumanoidRootPart.CFrame = CFrame.new(targetPos)
             
             print("⚠️ Fallback teleport executed (less safe method)")
+            
+            game:GetService("StarterGui"):SetCore("SendNotification", {
+                Title = "⚠️ Fallback Teleport";
+                Text = "Used emergency teleport";
+                Duration = 2;
+            })
         end
     end
 end)
 
--- // ================= NOTIFICATION ================= //
+-- // ================= INITIAL NOTIFICATION ================= //
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "🔐 Script Active";
-    Text = "Safe Teleport + Auto-Accept Ready!";
-    Duration = 4;
+    Title = "🔐 Script Loaded";
+    Text = "Will activate in " .. START_DELAY .. " seconds";
+    Duration = 3;
 })
 
-print("✅ Script fully loaded - Safe mode enabled")
+print("✅ Script loaded - Will activate in " .. START_DELAY .. " seconds")
 print("📍 Target: Treasure Room at -3561, -279, -1606")
