@@ -1,9 +1,6 @@
 -- // KONFIGURASI //
 local TARGET_GUI = "Prompt"
 local TARGET_BUTTON = "Yes"
-local CLICKS_PER_SECOND = 1
-local TP_INTERVAL = 5 -- Detik jeda antar teleport
-local MAX_TELEPORTS = 2 -- Maksimal 3x teleport
 
 -- // SERVICES //
 local Players = game:GetService("Players")
@@ -13,7 +10,7 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 print("--- 🤖 AUTO-ACCEPT & TELEPORT LOADED (CLICK METHOD) ---")
-print("📊 Konfigurasi: Teleport " .. MAX_TELEPORTS .. "x | Click " .. CLICKS_PER_SECOND .. "/detik")
+print("📊 Konfigurasi: Teleport 1x Aman | Random Click Delay 1.0s - 1.5s")
 
 -- // FUNGSI UNTUK MENDAPATKAN TARGET PLAYER TERDEKAT //
 local function getTargetPlayer()
@@ -39,32 +36,28 @@ local function getTargetPlayer()
     return closestPlayer
 end
 
--- // FUNGSI TELEPORT (HANYA 3 KALI) //
+-- // FUNGSI TELEPORT AMAN & TEPAT (HANYA 1 KALI) //
 task.spawn(function()
-    local teleportCount = 0
+    task.wait(1) -- Beri waktu sebentar agar karaktermu load dengan sempurna
     
-    while teleportCount < MAX_TELEPORTS do
-        local target = getTargetPlayer()
-        if target and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            local targetHRP = target.Character.HumanoidRootPart
-            local myHRP = LocalPlayer.Character.HumanoidRootPart
+    local target = getTargetPlayer()
+    local myChar = LocalPlayer.Character
+    
+    if target and target.Character and myChar and myChar:FindFirstChild("HumanoidRootPart") then
+        local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
+        
+        if targetHRP then
+            -- Posisi: 3 stud di depan target, dan 0.5 stud lebih tinggi agar tidak nyangkut di tanah
+            local safeCFrame = targetHRP.CFrame * CFrame.new(0, 0.5, -3)
             
-            -- Teleport ke posisi player (sedikit di depan mereka)
-            myHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 0, -3)
+            -- Menggunakan PivotTo lebih aman dan bersih daripada mengubah CFrame part satu per satu
+            myChar:PivotTo(safeCFrame)
             
-            teleportCount = teleportCount + 1
-            print("📍 Teleport ke-" .. teleportCount .. " ke player:", target.Name)
-            
-            if teleportCount < MAX_TELEPORTS then
-                task.wait(TP_INTERVAL)
-            end
-        else
-            print("⚠️ Tidak ada target player untuk teleport ke-" .. (teleportCount + 1))
-            task.wait(TP_INTERVAL)
+            print("📍 [AMAN] Teleport 1x berhasil ke depan player:", target.Name)
         end
+    else
+        print("⚠️ Gagal Teleport: Tidak ada target atau karakter belum siap.")
     end
-    
-    print("✅ Teleport selesai (" .. MAX_TELEPORTS .. "x teleport telah dilakukan)")
 end)
 
 -- // FUNGSI UNTUK MENDAPATKAN POSISI BUTTON //
@@ -121,10 +114,8 @@ local function isTradeRequest(button)
     return true
 end
 
--- // MAIN LOOP SCANNER (CLICK 1 KALI PER DETIK) //
+-- // MAIN LOOP SCANNER //
 task.spawn(function()
-    local clickDelay = 1 / CLICKS_PER_SECOND -- = 1 detik karena CLICKS_PER_SECOND = 1
-    
     while true do
         pcall(function()
             local prompt = PlayerGui:FindFirstChild(TARGET_GUI)
@@ -146,7 +137,10 @@ task.spawn(function()
                                 warn("✅ TRADE DETECTED! Clicking Yes button...")
                                 clickXY(centerX, centerY)
                                 
-                                task.wait(clickDelay) -- Jeda 1 detik antar klik
+                                -- Menghasilkan angka acak antara 10 hingga 15, dibagi 10 = 1.0 hingga 1.5 detik
+                                local randomClickDelay = math.random(10, 15) / 10 
+                                print("⏳ Menunggu selama " .. randomClickDelay .. " detik sebelum iterasi berikutnya...")
+                                task.wait(randomClickDelay)
                             end
                         else
                             print("⏭️ Skipping - This appears to be a buy/sell prompt")
@@ -162,13 +156,12 @@ end)
 -- // NOTIFIKASI SISTEM //
 game:GetService("StarterGui"):SetCore("SendNotification", {
     Title = "Auto Accept & Teleport Active";
-    Text = "Teleport " .. MAX_TELEPORTS .. "x | Click " .. CLICKS_PER_SECOND .. "/detik";
+    Text = "Teleport 1x Aman | Random Click 1-1.5s";
     Duration = 3;
 })
 
 print("--- ✅ SYSTEM READY ---")
-print("📍 Maksimal teleport: " .. MAX_TELEPORTS .. "x")
-print("⏱️ Interval teleport: " .. TP_INTERVAL .. " detik")
-print("🖱️ Kecepatan klik: " .. CLICKS_PER_SECOND .. " klik/detik")
+print("📍 Teleport: 1x (PivotTo Method)")
+print("⏱️ Delay Klik: 1.0 - 1.5 detik (Random)")
 print("🎯 Target GUI: " .. TARGET_GUI)
 print("🎯 Target button: " .. TARGET_BUTTON)
