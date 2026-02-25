@@ -56,14 +56,23 @@ local function getButtonRect(button)
     return { X = absPos.X, Y = absPos.Y + guiInset.Y, W = absSize.X, H = absSize.Y }
 end
 
--- // FUNGSI KLIK SIMULASI (KEMBALI KE ORIGINAL) //
+-- // FUNGSI KLIK SIMULASI (DENGAN MOUSE CLEANUP) //
 local function clickXY(x, y)
+    -- 1. Pindahkan mouse ke tengah tombol
     VirtualInputManager:SendMouseMoveEvent(x, y, game)
-    task.wait(0.02)
+    task.wait(0.05) -- Jeda sedikit agar UI bereaksi (hover state)
+    
+    -- 2. Tekan klik kiri
     VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
-    task.wait(0.02)
+    task.wait(0.05) -- Tahan sedikit layaknya jari manusia
+    
+    -- 3. Lepas klik kiri
     VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
-    print("🖱️ Clicked at:", x, y)
+    task.wait(0.05)
+    
+    -- 4. SINGKIRKAN MOUSE KE POJOK LAYAR (0,0)
+    VirtualInputManager:SendMouseMoveEvent(0, 0, game)
+    print("🖱️ Clicked at:", x, y, "| Mouse telah disingkirkan ke pojok layar (0,0)")
 end
 
 -- // FUNGSI VALIDASI TRADE //
@@ -104,8 +113,8 @@ task.spawn(function()
                                 warn("✅ TRADE DETECTED! Clicking Yes button...")
                                 clickXY(centerX, centerY)
                                 
-                                -- Jeda acak 1.5 - 2.0 detik sesuai permintaan
-                                local randomClickDelay = math.random(30, 35) / 10 
+                                -- Jeda acak 1.5 - 2.0 detik
+                                local randomClickDelay = math.random(15, 20) / 10 
                                 print("⏳ Menunggu " .. randomClickDelay .. " detik sebelum iterasi berikutnya...")
                                 task.wait(randomClickDelay)
                             end
@@ -121,6 +130,6 @@ end)
 -- // NOTIFIKASI SISTEM //
 game:GetService("StarterGui"):SetCore("SendNotification", {
     Title = "Script Active";
-    Text = "Teleport CFrame & VirtualInputManager Ready!";
+    Text = "Auto Accept Ready (Mouse Hidden)";
     Duration = 4;
 })
