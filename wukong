@@ -1,3 +1,8 @@
+-- ======================================================
+-- AUTO ACCEPT TRADE & TELEPORT (UNDETECTED VERSION)
+-- BEBAS VIRTUAL INPUT MANAGER | DOUBLE TELEPORT SYSTEM
+-- ======================================================
+
 -- // KONFIGURASI //
 local TARGET_GUI = "Prompt"
 local TARGET_BUTTON = "Yes"
@@ -12,8 +17,6 @@ local locations = {
 
 -- // SERVICES //
 local Players = game:GetService("Players")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local GuiService = game:GetService("GuiService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
@@ -28,10 +31,10 @@ game:GetService("StarterGui"):SetCore("SendNotification", {
 })
 
 task.wait(10) 
-print("--- 🚀 MEMULAI AUTO-ACCEPT & TELEPORT ---")
+print("--- 🚀 MEMULAI AUTO-ACCEPT & DOUBLE TELEPORT ---")
 ---------------------------------------------------------
 
--- // FUNGSI TELEPORT ORIGINAL (CFRAME INSTAN) //
+-- // FUNGSI TELEPORT AMAN (2x CONFIRMATION) //
 task.spawn(function()
     local locData = locations["Treasure Room"]
     local myChar = LocalPlayer.Character
@@ -39,41 +42,23 @@ task.spawn(function()
     if myChar and myChar:FindFirstChild("HumanoidRootPart") then
         local myHRP = myChar.HumanoidRootPart
         
-        -- Menggunakan metode original CFrame
-        myHRP.CFrame = CFrame.lookAt(locData.Pos, locData.Pos + locData.Look)
-        print("📍 Berhasil teleport ke: Treasure Room")
+        -- Melakukan Teleport 2 Kali
+        for i = 1, 2 do
+            pcall(function()
+                myHRP.CFrame = CFrame.new(locData.Pos, locData.Pos + locData.Look)
+                print("📍 [Teleport " .. i .. "/2] Memindahkan ke: Treasure Room")
+            end)
+            
+            -- Jeda 1 detik setelah teleport pertama agar server memuat map (mencegah jatuh)
+            if i == 1 then
+                task.wait(1)
+            end
+        end
+        print("✅ Teleportasi selesai dan dikonfirmasi!")
     else
         warn("⚠️ Gagal Teleport: Karakter belum siap.")
     end
 end)
-
--- // FUNGSI UNTUK MENDAPATKAN POSISI BUTTON //
-local function getButtonRect(button)
-    if not (button and button.Visible and button.AbsoluteSize.Magnitude > 0) then return nil end
-    local absPos = button.AbsolutePosition
-    local absSize = button.AbsoluteSize
-    local guiInset = GuiService:GetGuiInset()
-    return { X = absPos.X, Y = absPos.Y + guiInset.Y, W = absSize.X, H = absSize.Y }
-end
-
--- // FUNGSI KLIK SIMULASI (DENGAN MOUSE CLEANUP) //
-local function clickXY(x, y)
-    -- 1. Pindahkan mouse ke tengah tombol
-    VirtualInputManager:SendMouseMoveEvent(x, y, game)
-    task.wait(0.05) -- Jeda sedikit agar UI bereaksi (hover state)
-    
-    -- 2. Tekan klik kiri
-    VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
-    task.wait(0.05) -- Tahan sedikit layaknya jari manusia
-    
-    -- 3. Lepas klik kiri
-    VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
-    task.wait(0.05)
-    
-    -- 4. SINGKIRKAN MOUSE KE POJOK LAYAR (0,0)
-    VirtualInputManager:SendMouseMoveEvent(0, 0, game)
-    print("🖱️ Clicked at:", x, y, "| Mouse telah disingkirkan ke pojok layar (0,0)")
-end
 
 -- // FUNGSI VALIDASI TRADE //
 local function isTradeRequest(button)
@@ -86,38 +71,64 @@ local function isTradeRequest(button)
             local text = label.Text:lower()
             if text:find("from") or text:find("give") or text:find("trade") then
                 return true
-            else
-                return false
             end
         end
         current = current.Parent
         iterations = iterations + 1
     end
-    return true
+    -- Mengembalikan true jika validasi di atas tidak menemukan teks spesifik, 
+    -- namun tombol bernama "Yes" tetap muncul.
+    return true 
 end
 
--- // MAIN LOOP SCANNER (AUTO ACCEPT) //
+-- // FUNGSI SAFE CLICK (BYPASS VIRTUAL INPUT MANAGER) //
+local function SafeClick(button)
+    local success = pcall(function()
+        if getconnections then
+            -- Menembak (Fire) semua jenis koneksi klik tanpa mouse fisik
+            for _, connection in pairs(getconnections(button.MouseButton1Click)) do
+                connection:Fire()
+            end
+            for _, connection in pairs(getconnections(button.Activated)) do
+                connection:Fire()
+            end
+            for _, connection in pairs(getconnections(button.MouseButton1Down)) do
+                connection:Fire()
+            end
+            for _, connection in pairs(getconnections(button.MouseButton1Up)) do
+                connection:Fire()
+            end
+        else
+            warn("⚠️ Executor kamu tidak mendukung 'getconnections'.")
+        end
+    end)
+    
+    if success then
+        print("✅ Tombol 'Yes' berhasil diklik secara aman (UI Firing)")
+    else
+        warn("❌ Gagal melakukan SafeClick.")
+    end
+end
+
+-- // MAIN LOOP SCANNER (AUTO ACCEPT UNDETECTED) //
 task.spawn(function()
     while true do
         pcall(function()
             local prompt = PlayerGui:FindFirstChild(TARGET_GUI)
             if prompt and prompt.Enabled then
                 for _, obj in ipairs(prompt:GetDescendants()) do
-                    if obj.Name == TARGET_BUTTON and obj:IsA("ImageButton") and obj.Visible then
+                    -- Mengecek apakah objek adalah tombol yang sesuai target
+                    if obj.Name == TARGET_BUTTON and (obj:IsA("ImageButton") or obj:IsA("TextButton")) and obj.Visible then
                         if isTradeRequest(obj) then
-                            local rect = getButtonRect(obj)
-                            if rect then
-                                local centerX = rect.X + (rect.W / 2)
-                                local centerY = rect.Y + (rect.H / 2)
-                                
-                                warn("✅ TRADE DETECTED! Clicking Yes button...")
-                                clickXY(centerX, centerY)
-                                
-                                -- Jeda acak 1.5 - 2.0 detik
-                                local randomClickDelay = math.random(15, 20) / 10 
-                                print("⏳ Menunggu " .. randomClickDelay .. " detik sebelum iterasi berikutnya...")
-                                task.wait(randomClickDelay)
-                            end
+                            warn("✅ TRADE DETECTED! Memanggil SafeClick...")
+                            
+                            -- Mengeksekusi fungsi bypass UI
+                            SafeClick(obj)
+                            
+                            -- Jeda acak (1.5 - 2.0 detik) agar tidak terdeteksi spam klik oleh server
+                            local randomClickDelay = math.random(15, 20) / 10 
+                            print("⏳ Menunggu " .. randomClickDelay .. " detik sebelum iterasi berikutnya...")
+                            task.wait(randomClickDelay)
                         end
                     end
                 end
@@ -130,6 +141,6 @@ end)
 -- // NOTIFIKASI SISTEM //
 game:GetService("StarterGui"):SetCore("SendNotification", {
     Title = "Script Active";
-    Text = "Auto Accept Ready (Mouse Hidden)";
+    Text = "Auto Accept Ready (Undetected Mode)";
     Duration = 4;
 })
