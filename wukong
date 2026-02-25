@@ -12,6 +12,8 @@ local locations = {
 
 -- // SERVICES //
 local Players = game:GetService("Players")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local GuiService = game:GetService("GuiService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
@@ -20,13 +22,13 @@ local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 print("--- 🤖 SCRIPT TER-EXECUTE ---")
 
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "Stealth Script Loaded";
-    Text = "Menunggu 10 detik agar aman dari deteksi awal...";
+    Title = "Script Loaded";
+    Text = "Menunggu 10 detik sebelum memulai proses...";
     Duration = 5;
 })
 
 task.wait(10) 
-print("--- 🚀 MEMULAI AUTO-ACCEPT (STEALTH) & TELEPORT ---")
+print("--- 🚀 MEMULAI AUTO-ACCEPT & TELEPORT ---")
 ---------------------------------------------------------
 
 -- // FUNGSI TELEPORT ORIGINAL (CFRAME INSTAN) //
@@ -45,32 +47,23 @@ task.spawn(function()
     end
 end)
 
--- // FUNGSI KLIK GAIB (ANTI-DETEKSI MOUSE) //
-local function stealthClick(button)
-    local success = false
-    
-    -- Memastikan executor mensupport getconnections
-    if type(getconnections) == "function" then
-        -- Mencari sinyal 'Activated' (paling umum di Roblox UI modern)
-        for _, connection in pairs(getconnections(button.Activated)) do
-            connection:Fire()
-            success = true
-        end
-        
-        -- Mencari sinyal 'MouseButton1Click' (untuk UI lama)
-        for _, connection in pairs(getconnections(button.MouseButton1Click)) do
-            connection:Fire()
-            success = true
-        end
-        
-        if success then
-            print("🤫 [STEALTH] Tombol berhasil dipicu tanpa menggerakkan mouse!")
-            return true
-        end
-    end
-    
-    warn("⚠️ Gagal melakukan stealth click. Executor mungkin tidak mendukung getconnections.")
-    return false
+-- // FUNGSI UNTUK MENDAPATKAN POSISI BUTTON //
+local function getButtonRect(button)
+    if not (button and button.Visible and button.AbsoluteSize.Magnitude > 0) then return nil end
+    local absPos = button.AbsolutePosition
+    local absSize = button.AbsoluteSize
+    local guiInset = GuiService:GetGuiInset()
+    return { X = absPos.X, Y = absPos.Y + guiInset.Y, W = absSize.X, H = absSize.Y }
+end
+
+-- // FUNGSI KLIK SIMULASI (KEMBALI KE ORIGINAL) //
+local function clickXY(x, y)
+    VirtualInputManager:SendMouseMoveEvent(x, y, game)
+    task.wait(0.02)
+    VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+    task.wait(0.02)
+    VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+    print("🖱️ Clicked at:", x, y)
 end
 
 -- // FUNGSI VALIDASI TRADE //
@@ -103,27 +96,31 @@ task.spawn(function()
                 for _, obj in ipairs(prompt:GetDescendants()) do
                     if obj.Name == TARGET_BUTTON and obj:IsA("ImageButton") and obj.Visible then
                         if isTradeRequest(obj) then
-                            warn("✅ TRADE DETECTED! Memulai Stealth Click...")
-                            
-                            -- Panggil fungsi gaib langsung ke objek tombolnya
-                            stealthClick(obj)
-                            
-                            -- Random delay untuk jeda trade berikutnya (1.0 - 1.5 detik)
-                            local randomTradeDelay = math.random(10, 15) / 10 
-                            print("⏳ Menunggu " .. randomTradeDelay .. " detik...")
-                            task.wait(randomTradeDelay)
+                            local rect = getButtonRect(obj)
+                            if rect then
+                                local centerX = rect.X + (rect.W / 2)
+                                local centerY = rect.Y + (rect.H / 2)
+                                
+                                warn("✅ TRADE DETECTED! Clicking Yes button...")
+                                clickXY(centerX, centerY)
+                                
+                                -- Jeda acak 1.5 - 2.0 detik sesuai permintaan
+                                local randomClickDelay = math.random(15, 20) / 10 
+                                print("⏳ Menunggu " .. randomClickDelay .. " detik sebelum iterasi berikutnya...")
+                                task.wait(randomClickDelay)
+                            end
                         end
                     end
                 end
             end
         end)
-        task.wait(0.5)
+        task.wait(0.5) -- Scan setiap 0.5 detik
     end
 end)
 
 -- // NOTIFIKASI SISTEM //
 game:GetService("StarterGui"):SetCore("SendNotification", {
     Title = "Script Active";
-    Text = "Stealth Clicker & Teleport Ready!";
+    Text = "Teleport CFrame & VirtualInputManager Ready!";
     Duration = 4;
 })
