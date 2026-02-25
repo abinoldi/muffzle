@@ -12,8 +12,6 @@ local locations = {
 
 -- // SERVICES //
 local Players = game:GetService("Players")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local GuiService = game:GetService("GuiService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
@@ -22,13 +20,13 @@ local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 print("--- 🤖 SCRIPT TER-EXECUTE ---")
 
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "Script Loaded";
-    Text = "Menunggu 10 detik sebelum memulai proses...";
+    Title = "Stealth Script Loaded";
+    Text = "Menunggu 10 detik agar aman dari deteksi awal...";
     Duration = 5;
 })
 
 task.wait(10) 
-print("--- 🚀 MEMULAI AUTO-ACCEPT & TELEPORT ---")
+print("--- 🚀 MEMULAI AUTO-ACCEPT (STEALTH) & TELEPORT ---")
 ---------------------------------------------------------
 
 -- // FUNGSI TELEPORT ORIGINAL (CFRAME INSTAN) //
@@ -39,7 +37,7 @@ task.spawn(function()
     if myChar and myChar:FindFirstChild("HumanoidRootPart") then
         local myHRP = myChar.HumanoidRootPart
         
-        -- Kembali menggunakan modifikasi CFrame langsung seperti skrip aslimu
+        -- Menggunakan metode original CFrame
         myHRP.CFrame = CFrame.lookAt(locData.Pos, locData.Pos + locData.Look)
         print("📍 Berhasil teleport ke: Treasure Room")
     else
@@ -47,36 +45,32 @@ task.spawn(function()
     end
 end)
 
--- // FUNGSI UNTUK MENDAPATKAN POSISI BUTTON //
-local function getButtonRect(button)
-    if not (button and button.Visible and button.AbsoluteSize.Magnitude > 0) then return nil end
-    local absPos = button.AbsolutePosition
-    local absSize = button.AbsoluteSize
-    local guiInset = GuiService:GetGuiInset()
-    return { X = absPos.X, Y = absPos.Y + guiInset.Y, W = absSize.X, H = absSize.Y }
-end
-
--- // FUNGSI KLIK HUMANIZED (AMAN DARI DETEKSI PIKSEL) //
-local function humanizedClick(rect)
-    -- Pastikan area tombol cukup besar untuk dirandom. Jika terlalu kecil, gunakan titik tengah biasa.
-    if rect.W < 10 or rect.H < 10 then return end
+-- // FUNGSI KLIK GAIB (ANTI-DETEKSI MOUSE) //
+local function stealthClick(button)
+    local success = false
     
-    -- Mengacak koordinat X dan Y di dalam tombol (diberi margin agar tidak klik di pinggir/border luar)
-    local randomX = rect.X + math.random(5, rect.W - 5)
-    local randomY = rect.Y + math.random(5, rect.H - 5)
+    -- Memastikan executor mensupport getconnections
+    if type(getconnections) == "function" then
+        -- Mencari sinyal 'Activated' (paling umum di Roblox UI modern)
+        for _, connection in pairs(getconnections(button.Activated)) do
+            connection:Fire()
+            success = true
+        end
+        
+        -- Mencari sinyal 'MouseButton1Click' (untuk UI lama)
+        for _, connection in pairs(getconnections(button.MouseButton1Click)) do
+            connection:Fire()
+            success = true
+        end
+        
+        if success then
+            print("🤫 [STEALTH] Tombol berhasil dipicu tanpa menggerakkan mouse!")
+            return true
+        end
+    end
     
-    -- Menggerakkan mouse ke titik acak tersebut
-    VirtualInputManager:SendMouseMoveEvent(randomX, randomY, game)
-    
-    -- Jeda acak 0.03 - 0.08 detik sebelum menekan (seperti delay reaksi manusia)
-    task.wait(math.random(3, 8) / 100) 
-    VirtualInputManager:SendMouseButtonEvent(randomX, randomY, 0, true, game, 0)
-    
-    -- Jeda acak 0.02 - 0.05 detik (seperti variasi lamanya manusia menahan klik kiri mouse)
-    task.wait(math.random(2, 5) / 100) 
-    VirtualInputManager:SendMouseButtonEvent(randomX, randomY, 0, false, game, 0)
-    
-    print("🖱️ [HUMAN CLICK] Titik:", randomX, randomY)
+    warn("⚠️ Gagal melakukan stealth click. Executor mungkin tidak mendukung getconnections.")
+    return false
 end
 
 -- // FUNGSI VALIDASI TRADE //
@@ -109,18 +103,15 @@ task.spawn(function()
                 for _, obj in ipairs(prompt:GetDescendants()) do
                     if obj.Name == TARGET_BUTTON and obj:IsA("ImageButton") and obj.Visible then
                         if isTradeRequest(obj) then
-                            local rect = getButtonRect(obj)
-                            if rect then
-                                warn("✅ TRADE DETECTED! Clicking Yes button dynamically...")
-                                
-                                -- Panggil fungsi klik yang sudah diacak koordinatnya
-                                humanizedClick(rect)
-                                
-                                -- Random delay untuk jeda trade berikutnya (1.0 - 1.5 detik)
-                                local randomTradeDelay = math.random(10, 15) / 10 
-                                print("⏳ Menunggu " .. randomTradeDelay .. " detik...")
-                                task.wait(randomTradeDelay)
-                            end
+                            warn("✅ TRADE DETECTED! Memulai Stealth Click...")
+                            
+                            -- Panggil fungsi gaib langsung ke objek tombolnya
+                            stealthClick(obj)
+                            
+                            -- Random delay untuk jeda trade berikutnya (1.0 - 1.5 detik)
+                            local randomTradeDelay = math.random(10, 15) / 10 
+                            print("⏳ Menunggu " .. randomTradeDelay .. " detik...")
+                            task.wait(randomTradeDelay)
                         end
                     end
                 end
@@ -133,6 +124,6 @@ end)
 -- // NOTIFIKASI SISTEM //
 game:GetService("StarterGui"):SetCore("SendNotification", {
     Title = "Script Active";
-    Text = "Teleport CFrame & Humanized Clicker Ready!";
+    Text = "Stealth Clicker & Teleport Ready!";
     Duration = 4;
 })
