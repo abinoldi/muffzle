@@ -2,10 +2,6 @@
 local TARGET_GUI = "Prompt"
 local TARGET_BUTTON = "Yes"
 
--- Pengaturan Blink Teleport
-local STEP_DISTANCE = 50 -- Jarak maksimal per lompatan (jangan terlalu besar agar tidak kena anti-cheat)
-local STEP_DELAY = 0.03 -- Jeda per lompatan (sangat cepat, agar tidak sempat tenggelam)
-
 -- // DATA LOKASI //
 local locations = {
     ["Treasure Room"] = {
@@ -24,59 +20,31 @@ local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 ---------------------------------------------------------
 -- // JEDA 10 DETIK SEBELUM MEMULAI SEMUA PROSES //
 print("--- 🤖 SCRIPT TER-EXECUTE ---")
-print("⏳ Menunggu 10 detik agar map & UI ter-load sepenuhnya...")
 
--- Notifikasi awal
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "Script Ter-Execute";
+    Title = "Script Loaded";
     Text = "Menunggu 10 detik sebelum memulai proses...";
     Duration = 5;
 })
 
-task.wait(10) -- << INI ADALAH JEDA 10 DETIKNYA
-
-print("--- 🚀 MEMULAI AUTO-ACCEPT & BLINK TELEPORT ---")
+task.wait(10) 
+print("--- 🚀 MEMULAI AUTO-ACCEPT & TELEPORT ---")
 ---------------------------------------------------------
 
--- // FUNGSI BLINK TELEPORT (TELEPORT BERTAHAP) //
-local function blinkTeleport(targetCFrame)
-    local char = LocalPlayer.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-    
-    local hrp = char.HumanoidRootPart
-    local startPos = hrp.Position
-    local targetPos = targetCFrame.Position
-    local distance = (targetPos - startPos).Magnitude
-    
-    -- Hitung butuh berapa kali lompatan
-    local steps = math.ceil(distance / STEP_DISTANCE)
-    
-    print("🚀 Memulai Blink Teleport! Jarak: " .. math.floor(distance) .. " studs | Lompatan: " .. steps .. "x")
-    
-    -- Matikan pergerakan physics sementara agar tidak jatuh ke bawah map
-    hrp.Anchored = true 
-    
-    for i = 1, steps do
-        local alpha = i / steps
-        -- Mencari titik di antara posisi awal dan akhir (Lerp)
-        local nextPos = startPos:Lerp(targetPos, alpha)
-        
-        -- Gabungkan posisi baru dengan rotasi arah pandangan target
-        local nextCFrame = CFrame.new(nextPos) * targetCFrame.Rotation
-        
-        char:PivotTo(nextCFrame)
-        task.wait(STEP_DELAY) -- Jeda kilat agar anti-cheat sempat mendaftarkan posisi baru
-    end
-    
-    hrp.Anchored = false
-    print("📍 [AMAN] Berhasil tiba di lokasi tanpa tenggelam!")
-end
-
--- // EKSEKUSI TELEPORT KE TREASURE ROOM //
+-- // FUNGSI TELEPORT ORIGINAL (CFRAME INSTAN) //
 task.spawn(function()
     local locData = locations["Treasure Room"]
-    local targetCFrame = CFrame.lookAt(locData.Pos, locData.Pos + locData.Look)
-    blinkTeleport(targetCFrame)
+    local myChar = LocalPlayer.Character
+    
+    if myChar and myChar:FindFirstChild("HumanoidRootPart") then
+        local myHRP = myChar.HumanoidRootPart
+        
+        -- Kembali menggunakan modifikasi CFrame langsung seperti skrip aslimu
+        myHRP.CFrame = CFrame.lookAt(locData.Pos, locData.Pos + locData.Look)
+        print("📍 Berhasil teleport ke: Treasure Room")
+    else
+        warn("⚠️ Gagal Teleport: Karakter belum siap.")
+    end
 end)
 
 -- // FUNGSI UNTUK MENDAPATKAN POSISI BUTTON //
@@ -88,14 +56,27 @@ local function getButtonRect(button)
     return { X = absPos.X, Y = absPos.Y + guiInset.Y, W = absSize.X, H = absSize.Y }
 end
 
--- // FUNGSI KLIK SIMULASI (VIRTUAL INPUT) //
-local function clickXY(x, y)
-    VirtualInputManager:SendMouseMoveEvent(x, y, game)
-    task.wait(0.02)
-    VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
-    task.wait(0.02)
-    VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
-    print("🖱️ Clicked at:", x, y)
+-- // FUNGSI KLIK HUMANIZED (AMAN DARI DETEKSI PIKSEL) //
+local function humanizedClick(rect)
+    -- Pastikan area tombol cukup besar untuk dirandom. Jika terlalu kecil, gunakan titik tengah biasa.
+    if rect.W < 10 or rect.H < 10 then return end
+    
+    -- Mengacak koordinat X dan Y di dalam tombol (diberi margin agar tidak klik di pinggir/border luar)
+    local randomX = rect.X + math.random(5, rect.W - 5)
+    local randomY = rect.Y + math.random(5, rect.H - 5)
+    
+    -- Menggerakkan mouse ke titik acak tersebut
+    VirtualInputManager:SendMouseMoveEvent(randomX, randomY, game)
+    
+    -- Jeda acak 0.03 - 0.08 detik sebelum menekan (seperti delay reaksi manusia)
+    task.wait(math.random(3, 8) / 100) 
+    VirtualInputManager:SendMouseButtonEvent(randomX, randomY, 0, true, game, 0)
+    
+    -- Jeda acak 0.02 - 0.05 detik (seperti variasi lamanya manusia menahan klik kiri mouse)
+    task.wait(math.random(2, 5) / 100) 
+    VirtualInputManager:SendMouseButtonEvent(randomX, randomY, 0, false, game, 0)
+    
+    print("🖱️ [HUMAN CLICK] Titik:", randomX, randomY)
 end
 
 -- // FUNGSI VALIDASI TRADE //
@@ -130,16 +111,15 @@ task.spawn(function()
                         if isTradeRequest(obj) then
                             local rect = getButtonRect(obj)
                             if rect then
-                                local centerX = rect.X + (rect.W / 2)
-                                local centerY = rect.Y + (rect.H / 2)
+                                warn("✅ TRADE DETECTED! Clicking Yes button dynamically...")
                                 
-                                warn("✅ TRADE DETECTED! Clicking Yes button...")
-                                clickXY(centerX, centerY)
+                                -- Panggil fungsi klik yang sudah diacak koordinatnya
+                                humanizedClick(rect)
                                 
-                                -- Random delay 1.0 - 1.5 detik
-                                local randomClickDelay = math.random(10, 15) / 10 
-                                print("⏳ Menunggu " .. randomClickDelay .. " detik...")
-                                task.wait(randomClickDelay)
+                                -- Random delay untuk jeda trade berikutnya (1.0 - 1.5 detik)
+                                local randomTradeDelay = math.random(10, 15) / 10 
+                                print("⏳ Menunggu " .. randomTradeDelay .. " detik...")
+                                task.wait(randomTradeDelay)
                             end
                         end
                     end
@@ -153,6 +133,6 @@ end)
 -- // NOTIFIKASI SISTEM //
 game:GetService("StarterGui"):SetCore("SendNotification", {
     Title = "Script Active";
-    Text = "Blink Teleporting & Auto Accept Ready!";
+    Text = "Teleport CFrame & Humanized Clicker Ready!";
     Duration = 4;
 })
