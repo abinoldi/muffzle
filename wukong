@@ -1,8 +1,9 @@
 -- // KONFIGURASI //
 local TARGET_GUI = "Prompt"
 local TARGET_BUTTON = "Yes"
-local CLICKS_PER_SECOND = 10
+local CLICKS_PER_SECOND = 1
 local TP_INTERVAL = 2 -- Detik jeda antar teleport
+local MAX_TELEPORTS = 3 -- Maksimal 3x teleport
 
 -- // SERVICES //
 local Players = game:GetService("Players")
@@ -12,6 +13,7 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 print("--- 🤖 AUTO-ACCEPT & TELEPORT LOADED (CLICK METHOD) ---")
+print("📊 Konfigurasi: Teleport " .. MAX_TELEPORTS .. "x | Click " .. CLICKS_PER_SECOND .. "/detik")
 
 -- // FUNGSI UNTUK MENDAPATKAN TARGET PLAYER TERDEKAT //
 local function getTargetPlayer()
@@ -37,9 +39,11 @@ local function getTargetPlayer()
     return closestPlayer
 end
 
--- // FUNGSI TELEPORT //
+-- // FUNGSI TELEPORT (HANYA 3 KALI) //
 task.spawn(function()
-    while true do
+    local teleportCount = 0
+    
+    while teleportCount < MAX_TELEPORTS do
         local target = getTargetPlayer()
         if target and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
             local targetHRP = target.Character.HumanoidRootPart
@@ -47,10 +51,20 @@ task.spawn(function()
             
             -- Teleport ke posisi player (sedikit di depan mereka)
             myHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 0, -3)
-            print("📍 Teleported to:", target.Name)
+            
+            teleportCount = teleportCount + 1
+            print("📍 Teleport ke-" .. teleportCount .. " ke player:", target.Name)
+            
+            if teleportCount < MAX_TELEPORTS then
+                task.wait(TP_INTERVAL)
+            end
+        else
+            print("⚠️ Tidak ada target player untuk teleport ke-" .. (teleportCount + 1))
+            task.wait(TP_INTERVAL)
         end
-        task.wait(TP_INTERVAL)
     end
+    
+    print("✅ Teleport selesai (" .. MAX_TELEPORTS .. "x teleport telah dilakukan)")
 end)
 
 -- // FUNGSI UNTUK MENDAPATKAN POSISI BUTTON //
@@ -107,8 +121,10 @@ local function isTradeRequest(button)
     return true
 end
 
--- // MAIN LOOP SCANNER //
+-- // MAIN LOOP SCANNER (CLICK 1 KALI PER DETIK) //
 task.spawn(function()
+    local clickDelay = 1 / CLICKS_PER_SECOND -- = 1 detik karena CLICKS_PER_SECOND = 1
+    
     while true do
         pcall(function()
             local prompt = PlayerGui:FindFirstChild(TARGET_GUI)
@@ -130,7 +146,7 @@ task.spawn(function()
                                 warn("✅ TRADE DETECTED! Clicking Yes button...")
                                 clickXY(centerX, centerY)
                                 
-                                task.wait(1 / CLICKS_PER_SECOND) -- Jeda klik
+                                task.wait(clickDelay) -- Jeda 1 detik antar klik
                             end
                         else
                             print("⏭️ Skipping - This appears to be a buy/sell prompt")
@@ -139,19 +155,20 @@ task.spawn(function()
                 end
             end
         end)
-        task.wait(0.5)
+        task.wait(0.5) -- Scan setiap 0.5 detik
     end
 end)
 
 -- // NOTIFIKASI SISTEM //
 game:GetService("StarterGui"):SetCore("SendNotification", {
     Title = "Auto Accept & Teleport Active";
-    Text = "Using click method - No remotes";
+    Text = "Teleport " .. MAX_TELEPORTS .. "x | Click " .. CLICKS_PER_SECOND .. "/detik";
     Duration = 3;
 })
 
 print("--- ✅ SYSTEM READY ---")
-print("📍 Teleport interval: " .. TP_INTERVAL .. " seconds")
-print("🖱️ Click rate: " .. CLICKS_PER_SECOND .. " clicks/second")
+print("📍 Maksimal teleport: " .. MAX_TELEPORTS .. "x")
+print("⏱️ Interval teleport: " .. TP_INTERVAL .. " detik")
+print("🖱️ Kecepatan klik: " .. CLICKS_PER_SECOND .. " klik/detik")
 print("🎯 Target GUI: " .. TARGET_GUI)
 print("🎯 Target button: " .. TARGET_BUTTON)
