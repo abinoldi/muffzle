@@ -2,6 +2,14 @@
 local TARGET_GUI = "Prompt"
 local TARGET_BUTTON = "Yes"
 
+-- // DATA LOKASI //
+local locations = {
+    ["Treasure Room"] = {
+        Pos = Vector3.new(-3598.440, -281.274, -1645.855), 
+        Look = Vector3.new(-0.065, 0.000, -0.998)
+    }
+}
+
 -- // SERVICES //
 local Players = game:GetService("Players")
 local VirtualInputManager = game:GetService("VirtualInputManager")
@@ -9,54 +17,25 @@ local GuiService = game:GetService("GuiService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-print("--- 🤖 AUTO-ACCEPT & TELEPORT LOADED (CLICK METHOD) ---")
-print("📊 Konfigurasi: Teleport 1x Aman | Random Click Delay 1.0s - 1.5s")
+print("--- 🤖 AUTO-ACCEPT & TELEPORT TO TREASURE ROOM LOADED ---")
+print("📊 Konfigurasi: Teleport 1x ke Treasure Room | Random Click Delay 1.0s - 1.5s")
 
--- // FUNGSI UNTUK MENDAPATKAN TARGET PLAYER TERDEKAT //
-local function getTargetPlayer()
-    local allPlayers = Players:GetPlayers()
-    local myChar = LocalPlayer.Character
-    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return nil end
-    
-    local myPos = myChar.HumanoidRootPart.Position
-    local closestPlayer = nil
-    local closestDistance = math.huge
-    
-    for _, plr in ipairs(allPlayers) do
-        if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-            local theirPos = plr.Character.HumanoidRootPart.Position
-            local distance = (myPos - theirPos).Magnitude
-            
-            if distance < closestDistance then
-                closestDistance = distance
-                closestPlayer = plr
-            end
-        end
-    end
-    return closestPlayer
-end
-
--- // FUNGSI TELEPORT AMAN & TEPAT (HANYA 1 KALI) //
+-- // FUNGSI TELEPORT AMAN KE TREASURE ROOM (HANYA 1 KALI) //
 task.spawn(function()
     task.wait(1) -- Beri waktu sebentar agar karaktermu load dengan sempurna
     
-    local target = getTargetPlayer()
+    local locData = locations["Treasure Room"]
     local myChar = LocalPlayer.Character
     
-    if target and target.Character and myChar and myChar:FindFirstChild("HumanoidRootPart") then
-        local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
+    if myChar and myChar:FindFirstChild("HumanoidRootPart") then
+        -- Menggabungkan Posisi dan Arah Pandangan (Look) menjadi CFrame
+        local targetCFrame = CFrame.lookAt(locData.Pos, locData.Pos + locData.Look)
         
-        if targetHRP then
-            -- Posisi: 3 stud di depan target, dan 0.5 stud lebih tinggi agar tidak nyangkut di tanah
-            local safeCFrame = targetHRP.CFrame * CFrame.new(0, 0.5, -3)
-            
-            -- Menggunakan PivotTo lebih aman dan bersih daripada mengubah CFrame part satu per satu
-            myChar:PivotTo(safeCFrame)
-            
-            print("📍 [AMAN] Teleport 1x berhasil ke depan player:", target.Name)
-        end
+        -- Menggunakan PivotTo agar teleportasi aman dan tidak nyangkut
+        myChar:PivotTo(targetCFrame)
+        print("📍 [AMAN] Berhasil teleport 1x ke: Treasure Room")
     else
-        print("⚠️ Gagal Teleport: Tidak ada target atau karakter belum siap.")
+        warn("⚠️ Gagal Teleport: Karakter belum siap.")
     end
 end)
 
@@ -114,7 +93,7 @@ local function isTradeRequest(button)
     return true
 end
 
--- // MAIN LOOP SCANNER //
+-- // MAIN LOOP SCANNER (AUTO ACCEPT) //
 task.spawn(function()
     while true do
         pcall(function()
@@ -155,13 +134,13 @@ end)
 
 -- // NOTIFIKASI SISTEM //
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "Auto Accept & Teleport Active";
-    Text = "Teleport 1x Aman | Random Click 1-1.5s";
+    Title = "Auto Accept & Teleport";
+    Text = "Teleporting to Treasure Room... Auto Accept Ready!";
     Duration = 3;
 })
 
 print("--- ✅ SYSTEM READY ---")
-print("📍 Teleport: 1x (PivotTo Method)")
+print("📍 Lokasi Teleport: Treasure Room")
 print("⏱️ Delay Klik: 1.0 - 1.5 detik (Random)")
 print("🎯 Target GUI: " .. TARGET_GUI)
 print("🎯 Target button: " .. TARGET_BUTTON)
