@@ -1,11 +1,7 @@
 -- ======================================================
--- AUTO ACCEPT TRADE (VISUAL + GETCONNECTIONS)
--- AMAN DARI BAC 1229 | ADA ANIMASI KURSOR | DOUBLE TP
+-- AUTO ACCEPT TRADE & TELEPORT (ADVANCED HOOK MODE)
+-- 100% NO VIM | BYPASS PROMPT CONTROLLER | ANTI-AFK
 -- ======================================================
-
--- // KONFIGURASI //
-local TARGET_GUI = "Prompt"
-local TARGET_BUTTON = "Yes"
 
 -- // DATA LOKASI //
 local locations = {
@@ -17,46 +13,21 @@ local locations = {
 
 -- // SERVICES //
 local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
-local GuiService = game:GetService("GuiService")
-local CoreGui = game:GetService("CoreGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 ---------------------------------------------------------
 print("--- 🤖 SCRIPT TER-EXECUTE ---")
 game:GetService("StarterGui"):SetCore("SendNotification", {
     Title = "Script Loaded";
-    Text = "Menyiapkan Visual GetConnections Mode...";
+    Text = "Menyiapkan Hook Controller & Anti-AFK...";
     Duration = 3;
 })
-task.wait(3) 
-print("--- 🚀 MEMULAI SYSTEM ---")
+task.wait(2) 
 ---------------------------------------------------------
 
 -- ======================================================
--- 1. MEMBUAT ILUSI KURSOR MOUSE (VISUAL)
--- ======================================================
-local fakeMouseGui = Instance.new("ScreenGui")
-fakeMouseGui.Name = "FakeMouseIllusion"
-fakeMouseGui.IgnoreGuiInset = true
-fakeMouseGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
-
--- Coba simpan di CoreGui agar tidak hilang saat reset
-local successCoreGui = pcall(function() fakeMouseGui.Parent = CoreGui end)
-if not successCoreGui then fakeMouseGui.Parent = PlayerGui end
-
-local fakeCursor = Instance.new("ImageLabel")
-fakeCursor.Name = "Cursor"
-fakeCursor.Size = UDim2.new(0, 30, 0, 30) 
-fakeCursor.BackgroundTransparency = 1
-fakeCursor.Image = "rbxasset://textures/Cursors/KeyboardMouse/ArrowCursor.png"
-fakeCursor.ZIndex = 999999
-fakeCursor.Visible = false
-fakeCursor.Parent = fakeMouseGui
-
--- ======================================================
--- 2. FUNGSI TELEPORT AMAN (2x CONFIRMATION)
+-- 1. FUNGSI TELEPORT AMAN (2x CONFIRMATION)
 -- ======================================================
 task.spawn(function()
     local locData = locations["Treasure Room"]
@@ -76,112 +47,76 @@ task.spawn(function()
 end)
 
 -- ======================================================
--- 3. FUNGSI KLIK RAHASIA (GETCONNECTIONS)
+-- 2. LOAD MODULES & HOOK PROMPT CONTROLLER
 -- ======================================================
-local function SilentClick(button)
-    if not getconnections then return false end
-    local clicked = false
+local Replion, Promise, ItemUtility, ItemStringUtility, PromptController
+
+local modulesLoaded = pcall(function()
+    -- Memuat module yang dibutuhkan dari dalam game
+    Promise = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Promise"))
+    PromptController = require(ReplicatedStorage:WaitForChild("Controllers"):WaitForChild("PromptController"))
     
-    pcall(function()
-        for _, conn in pairs(getconnections(button.MouseButton1Click)) do
-            conn:Fire() clicked = true
-        end
-        for _, conn in pairs(getconnections(button.Activated)) do
-            conn:Fire() clicked = true
+    -- Memuat module pelengkap dari scriptmu
+    Replion = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Replion"))
+    ItemUtility = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ItemUtility"))
+    ItemStringUtility = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("ItemStringUtility"))
+end)
+
+if modulesLoaded and PromptController and Promise then
+    print("📦 Modules berhasil dimuat! Menerapkan Hook Prompt...")
+    
+    if not getgenv().oldFirePrompt then
+        getgenv().oldFirePrompt = PromptController.FirePrompt
+    end
+    
+    -- Membajak fungsi asli PromptController
+    hookfunction(PromptController.FirePrompt, function(self, promptText, ...)
+        if type(promptText) == "string" then
+            local textLower = promptText:lower()
+            
+            -- Jika prompt berisi kata Trade/Accept
+            if (textLower:find("accept") and textLower:find("from:")) or textLower:find("to give") then
+                warn("✅ [HOOK] Trade Prompt dicegat! Menerima secara instan tanpa UI...")
+                
+                -- Memaksa game berpikir bahwa user menekan tombol Yes
+                return Promise.resolve(true)
+            end
         end
         
-        local fakeInput = {UserInputType = Enum.UserInputType.MouseButton1, UserInputState = Enum.UserInputState.Begin}
-        for _, conn in pairs(getconnections(button.InputBegan)) do
-            pcall(function() conn:Fire(fakeInput) clicked = true end)
-        end
+        -- Jika prompt bukan trade (misal prompt error/beli), tampilkan UI seperti biasa
+        return getgenv().oldFirePrompt(self, promptText, ...)
     end)
     
-    return clicked
+    print("🚀 [SUCCESS] Auto Accept Trade Hook Aktif!")
+else
+    warn("❌ Gagal memuat module! Pastikan executor mendukung require() internal.")
 end
 
 -- ======================================================
--- 4. FUNGSI ANIMASI KURSOR (GABUNGAN VISUAL & KLIK)
+-- 3. HOOK METAMETHOD (ANTI-AFK / BLOCK RECONNECT)
 -- ======================================================
-local function AnimateFakeMouseAndClick(button)
-    if not button then return end
-    
-    local inset = GuiService:GetGuiInset()
-    local targetX = button.AbsolutePosition.X + (button.AbsoluteSize.X / 2)
-    local targetY = button.AbsolutePosition.Y + (button.AbsoluteSize.Y / 2) + inset.Y
-    
-    -- Mulai dari bawah tengah layar
-    fakeCursor.Position = UDim2.new(0.5, 0, 1.2, 0)
-    fakeCursor.Visible = true
-    
-    -- 1. Meluncur ke tombol (0.4 detik)
-    local tweenInfoIn = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-    local tweenMoveIn = TweenService:Create(fakeCursor, tweenInfoIn, {Position = UDim2.new(0, targetX, 0, targetY)})
-    tweenMoveIn:Play()
-    tweenMoveIn.Completed:Wait()
-    
-    -- 2. Efek "Klik" menekan (Kursor mengecil sedikit)
-    local tweenClickDown = TweenService:Create(fakeCursor, TweenInfo.new(0.1), {Size = UDim2.new(0, 25, 0, 25)})
-    tweenClickDown:Play()
-    tweenClickDown.Completed:Wait()
-    
-    -- 🔥 EKSEKUSI KLIK GETCONNECTIONS DI SINI 🔥
-    SilentClick(button)
-    print("🖱️ [Visual + Silent] Kursor mengklik dan getconnections ditembakkan!")
-    
-    -- 3. Efek "Klik" dilepas (Kursor kembali ke ukuran normal)
-    local tweenClickUp = TweenService:Create(fakeCursor, TweenInfo.new(0.1), {Size = UDim2.new(0, 30, 0, 30)})
-    tweenClickUp:Play()
-    tweenClickUp.Completed:Wait()
-    
-    -- 4. Seret kursor ke luar layar (Kabur ke pojok kanan bawah)
-    local tweenInfoOut = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-    local tweenMoveOut = TweenService:Create(fakeCursor, tweenInfoOut, {Position = UDim2.new(1.5, 0, 1.5, 0)})
-    tweenMoveOut:Play()
-    tweenMoveOut.Completed:Wait()
-    
-    -- Sembunyikan kursor
-    fakeCursor.Visible = false
-end
+if hookmetamethod and newcclosure then
+    if not getgenv().oldAFKScript then
+        getgenv().oldAFKScript = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+            local method = getnamecallmethod()
 
--- ======================================================
--- 5. MAIN LOOP: SCAN UI & EKSEKUSI
--- ======================================================
-task.spawn(function()
-    while true do
-        pcall(function()
-            local prompt = PlayerGui:FindFirstChild(TARGET_GUI)
-            
-            if prompt and prompt.Enabled then
-                for _, obj in ipairs(prompt:GetDescendants()) do
-                    if obj.Name == TARGET_BUTTON and (obj:IsA("ImageButton") or obj:IsA("TextButton")) and obj.Visible then
-                        
-                        local parentFrame = obj.Parent and obj.Parent.Parent
-                        local label = parentFrame and (parentFrame:FindFirstChild("Label") or parentFrame:FindFirstChild("TextLabel"))
-                        
-                        if label and (label.Text:lower():find("trade") or label.Text:lower():find("from") or label.Text:lower():find("give")) then
-                            
-                            warn("✅ [TRADE DETECTED] Menunggu jeda natural sebelum Accept...")
-                            task.wait(math.random(15, 25) / 10)
-                            
-                            -- Panggil fungsi gabungan (Animasi + Klik)
-                            AnimateFakeMouseAndClick(obj)
-                            
-                            -- Hilangkan pop-up secara visual agar tidak nyangkut
-                            prompt.Enabled = false
-                            
-                            task.wait(2)
-                        end
-                    end
-                end
+            -- Mencegah game mengirim sinyal Reconnect/AFK Kick
+            if method == "FireServer" and tostring(self) == "ReconnectPlayer" then 
+                print("🛡️ [ANTI-AFK] Sinyal kick/reconnect diblokir!")
+                return nil  
             end
-        end)
-        task.wait(0.5)
+
+            return getgenv().oldAFKScript(self, ...)
+        end))
+        print("🛡️ [SUCCESS] Anti-AFK Hook (Metamethod) Aktif!")
     end
-end)
+else
+    warn("⚠️ Executor kamu tidak mendukung hookmetamethod.")
+end
 
 -- Notifikasi sistem
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "Visual Mode Aktif";
-    Text = "Animasi Kursor + getconnections berjalan!",
-    Duration = 4;
+    Title = "Advanced Hook Aktif";
+    Text = "Auto Accept & Anti-AFK berjalan di latar belakang.",
+    Duration = 5;
 })
