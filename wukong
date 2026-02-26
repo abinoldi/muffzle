@@ -55,7 +55,7 @@ if modulesLoaded and PromptController and Promise then
                 
                 -- JEDA 3 DETIK SEBELUM ACCEPT
                 return Promise.new(function(resolve)
-                    task.wait(3) -- Jeda yang diminta agar server siap menerima konfirmasi
+                    task.wait(4) -- Jeda yang diminta agar server siap menerima konfirmasi
                     resolve(true)  -- Mengirim sinyal YES
                     warn("✅ [SUCCESS] Trade otomatis di-Accept setelah 3 detik!")
                 end)
