@@ -1,9 +1,8 @@
 -- ======================================================
--- AUTO ACCEPT TRADE & TELEPORT (ADVANCED HOOK MODE)
--- 100% NO VIM | BYPASS PROMPT CONTROLLER | ANTI-AFK
+-- AUTO ACCEPT TRADE & TELEPORT (ADVANCED HOOK MODE FIX)
+-- 100% NO VIM | 3 SECONDS DELAY | ANTI-AFK
 -- ======================================================
 
--- // DATA LOKASI //
 local locations = {
     ["Treasure Room"] = {
         Pos = Vector3.new(-3561.297, -279.074, -1606.289), 
@@ -11,24 +10,15 @@ local locations = {
     }
 }
 
--- // SERVICES //
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 
 ---------------------------------------------------------
-print("--- 🤖 SCRIPT TER-EXECUTE ---")
-game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "Script Loaded";
-    Text = "Menyiapkan Hook Controller & Anti-AFK...";
-    Duration = 3;
-})
-task.wait(2) 
+print("--- 🤖 MENGINISIALISASI SCRIPT ---")
 ---------------------------------------------------------
 
--- ======================================================
--- 1. FUNGSI TELEPORT AMAN (2x CONFIRMATION)
--- ======================================================
+-- // 1. FUNGSI TELEPORT AMAN //
 task.spawn(function()
     local locData = locations["Treasure Room"]
     local myChar = LocalPlayer.Character
@@ -36,35 +26,21 @@ task.spawn(function()
     if myChar and myChar:FindFirstChild("HumanoidRootPart") then
         local myHRP = myChar.HumanoidRootPart
         for i = 1, 2 do
-            pcall(function()
-                myHRP.CFrame = CFrame.new(locData.Pos, locData.Pos + locData.Look)
-                print("📍 [Teleport " .. i .. "/2] Memindahkan ke: Treasure Room")
-            end)
+            pcall(function() myHRP.CFrame = CFrame.new(locData.Pos, locData.Pos + locData.Look) end)
             if i == 1 then task.wait(1) end
         end
-        print("✅ Teleportasi selesai dan dikonfirmasi!")
+        print("📍 Teleportasi selesai.")
     end
 end)
 
--- ======================================================
--- 2. LOAD MODULES & HOOK PROMPT CONTROLLER
--- ======================================================
-local Replion, Promise, ItemUtility, ItemStringUtility, PromptController
-
+-- // 2. LOAD MODULES & HOOK PROMPT CONTROLLER //
+local Promise, PromptController
 local modulesLoaded = pcall(function()
-    -- Memuat module yang dibutuhkan dari dalam game
     Promise = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Promise"))
     PromptController = require(ReplicatedStorage:WaitForChild("Controllers"):WaitForChild("PromptController"))
-    
-    -- Memuat module pelengkap dari scriptmu
-    Replion = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Replion"))
-    ItemUtility = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ItemUtility"))
-    ItemStringUtility = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("ItemStringUtility"))
 end)
 
 if modulesLoaded and PromptController and Promise then
-    print("📦 Modules berhasil dimuat! Menerapkan Hook Prompt...")
-    
     if not getgenv().oldFirePrompt then
         getgenv().oldFirePrompt = PromptController.FirePrompt
     end
@@ -74,49 +50,35 @@ if modulesLoaded and PromptController and Promise then
         if type(promptText) == "string" then
             local textLower = promptText:lower()
             
-            -- Jika prompt berisi kata Trade/Accept
-            if (textLower:find("accept") and textLower:find("from:")) or textLower:find("to give") then
-                warn("✅ [HOOK] Trade Prompt dicegat! Menerima secara instan tanpa UI...")
+            if (textLower:find("accept") and textLower:find("from:")) or textLower:find("to give") or textLower:find("trade") then
+                warn("⏳ [HOOK] Trade masuk! Menunggu 3 detik agar game stabil...")
                 
-                -- Memaksa game berpikir bahwa user menekan tombol Yes
-                return Promise.resolve(true)
+                -- JEDA 3 DETIK SEBELUM ACCEPT
+                return Promise.new(function(resolve)
+                    task.wait(3) -- Jeda yang diminta agar server siap menerima konfirmasi
+                    resolve(true)  -- Mengirim sinyal YES
+                    warn("✅ [SUCCESS] Trade otomatis di-Accept setelah 3 detik!")
+                end)
             end
         end
         
-        -- Jika prompt bukan trade (misal prompt error/beli), tampilkan UI seperti biasa
         return getgenv().oldFirePrompt(self, promptText, ...)
     end)
     
-    print("🚀 [SUCCESS] Auto Accept Trade Hook Aktif!")
+    print("🚀 [SUCCESS] Auto Accept Trade Hook Aktif (Delay 3s)!")
 else
-    warn("❌ Gagal memuat module! Pastikan executor mendukung require() internal.")
+    warn("❌ Gagal memuat module PromptController/Promise.")
 end
 
--- ======================================================
--- 3. HOOK METAMETHOD (ANTI-AFK / BLOCK RECONNECT)
--- ======================================================
+-- // 3. HOOK METAMETHOD (ANTI-AFK) //
 if hookmetamethod and newcclosure then
     if not getgenv().oldAFKScript then
         getgenv().oldAFKScript = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-            local method = getnamecallmethod()
-
-            -- Mencegah game mengirim sinyal Reconnect/AFK Kick
-            if method == "FireServer" and tostring(self) == "ReconnectPlayer" then 
-                print("🛡️ [ANTI-AFK] Sinyal kick/reconnect diblokir!")
+            if getnamecallmethod() == "FireServer" and tostring(self) == "ReconnectPlayer" then 
                 return nil  
             end
-
             return getgenv().oldAFKScript(self, ...)
         end))
-        print("🛡️ [SUCCESS] Anti-AFK Hook (Metamethod) Aktif!")
+        print("🛡️ [SUCCESS] Anti-AFK Hook Aktif!")
     end
-else
-    warn("⚠️ Executor kamu tidak mendukung hookmetamethod.")
 end
-
--- Notifikasi sistem
-game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "Advanced Hook Aktif";
-    Text = "Auto Accept & Anti-AFK berjalan di latar belakang.",
-    Duration = 5;
-})
