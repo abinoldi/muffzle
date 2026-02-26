@@ -1,11 +1,7 @@
 -- ======================================================
--- AUTO ACCEPT TRADE & TELEPORT 
--- VIRTUAL INPUT MANAGER MODE (MOUSE TERLIHAT) | DOUBLE TELEPORT
+-- AUTO ACCEPT TRADE & TELEPORT (PROMPT HOOKING MODE)
+-- 100% UNDETECTED | NO VIRTUAL INPUT | DOUBLE TELEPORT
 -- ======================================================
-
--- // KONFIGURASI //
-local TARGET_GUI = "Prompt"
-local TARGET_BUTTON = "Yes"
 
 -- // DATA LOKASI //
 local locations = {
@@ -17,26 +13,23 @@ local locations = {
 
 -- // SERVICES //
 local Players = game:GetService("Players")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local GuiService = game:GetService("GuiService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 ---------------------------------------------------------
--- // JEDA 10 DETIK SEBELUM MEMULAI SEMUA PROSES //
 print("--- 🤖 SCRIPT TER-EXECUTE ---")
 
 game:GetService("StarterGui"):SetCore("SendNotification", {
     Title = "Script Loaded";
-    Text = "Menunggu 10 detik sebelum memulai proses...";
-    Duration = 5;
+    Text = "Menyiapkan Auto-Accept (Hook Mode)...";
+    Duration = 3;
 })
 
-task.wait(10) 
-print("--- 🚀 MEMULAI AUTO-ACCEPT (VIM) & DOUBLE TELEPORT ---")
+task.wait(3) 
+print("--- 🚀 MEMULAI AUTO-ACCEPT & DOUBLE TELEPORT ---")
 ---------------------------------------------------------
 
--- // FUNGSI TELEPORT AMAN (2x CONFIRMATION) //
+-- // 1. FUNGSI TELEPORT AMAN (2x CONFIRMATION) //
 task.spawn(function()
     local locData = locations["Treasure Room"]
     local myChar = LocalPlayer.Character
@@ -49,7 +42,7 @@ task.spawn(function()
                 myHRP.CFrame = CFrame.new(locData.Pos, locData.Pos + locData.Look)
                 print("📍 [Teleport " .. i .. "/2] Memindahkan ke: Treasure Room")
             end)
-            if i == 1 then task.wait(1) end
+            if i == 1 then task.wait(1) end -- Jeda agar map terender
         end
         print("✅ Teleportasi selesai dan dikonfirmasi!")
     else
@@ -57,83 +50,49 @@ task.spawn(function()
     end
 end)
 
--- // FUNGSI VALIDASI TRADE //
-local function isTradeRequest(button)
-    local current = button.Parent
-    local maxIterations = 10
-    local iterations = 0
-    while current and iterations < maxIterations do
-        local label = current:FindFirstChild("Label") or current:FindFirstChild("TextLabel")
-        if label and label:IsA("TextLabel") then
-            local text = label.Text:lower()
-            if text:find("from") or text:find("give") or text:find("trade") then
-                return true
-            end
+-- // 2. HOOKING PROMPT CONTROLLER (AUTO ACCEPT) //
+local success, err = pcall(function()
+    -- Load modules game yang mengontrol Prompt dan Promise
+    local PromptController = require(ReplicatedStorage:WaitForChild("Controllers"):WaitForChild("PromptController"))
+    local Promise = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Promise"))
+
+    -- Simpan fungsi asli ke dalam memori
+    local oldFirePrompt = PromptController.FirePrompt
+
+    -- Overwrite (Bungkus) fungsi FirePrompt
+    PromptController.FirePrompt = function(self, promptText, ...)
+        
+        -- Cek apakah text yang muncul adalah permintaan Trade
+        if type(promptText) == "string" and (promptText:lower():find("trade") or promptText:lower():find("from") or promptText:lower():find("give")) then
+            
+            -- Ekstrak nama pengirim (opsional untuk log)
+            local initiatorName = string.match(promptText, "from: ([^\n]+)") or "Seseorang"
+            warn(string.format("✅ [AUTO ACCEPT] Menerima trade dari: %s", initiatorName))
+            
+            -- Mengembalikan Promise yang langsung "True" (Seolah-olah user menekan YES)
+            return Promise.new(function(resolve)
+                -- Tambahkan jeda acak 1.5 - 2.5 detik agar terlihat seperti manusia membaca
+                local delayTime = math.random(15, 25) / 10
+                print("⏳ Menunggu " .. delayTime .. " detik sebelum Accept otomatis...")
+                task.wait(delayTime)
+                
+                -- Resolve(true) akan memicu game untuk mengirim remote accept trade sendiri!
+                resolve(true)
+            end)
         end
-        current = current.Parent
-        iterations = iterations + 1
-    end
-    return true 
-end
-
--- // FUNGSI VIRTUAL MOUSE CLICK (TERLIHAT VISUAL) //
-local function VirtualClick(button)
-    -- Pastikan tombol ada dan terlihat di layar
-    if not (button and button.Visible and button.AbsoluteSize.Magnitude > 0) then return end
-    
-    -- Dapatkan kompensasi Topbar Roblox agar klik tidak meleset
-    local inset, _ = GuiService:GetGuiInset()
-    
-    -- Hitung koordinat X dan Y tepat di tengah tombol
-    local centerX = button.AbsolutePosition.X + (button.AbsoluteSize.X / 2)
-    local centerY = button.AbsolutePosition.Y + (button.AbsoluteSize.Y / 2) + inset.Y
-
-    -- 1. Pindahkan mouse virtual ke tengah tombol
-    VirtualInputManager:SendMouseMoveEvent(centerX, centerY, game)
-    task.wait(0.1) -- Jeda agar efek "Hover" UI sempat muncul
-    
-    -- 2. Tekan klik kiri bawah (Down)
-    VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 0)
-    task.wait(0.1) -- Tahan sedikit layaknya jari manusia
-    
-    -- 3. Lepaskan klik kiri (Up)
-    VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 0)
-    
-    -- Mouse sengaja TIDAK dipindahkan lagi agar kamu bisa melihatnya diam di atas tombol Yes
-    print("🖱️ Mouse Virtual mengklik di koordinat: X=" .. math.floor(centerX) .. ", Y=" .. math.floor(centerY))
-end
-
--- // MAIN LOOP SCANNER (AUTO ACCEPT) //
-task.spawn(function()
-    while true do
-        pcall(function()
-            local prompt = PlayerGui:FindFirstChild(TARGET_GUI)
-            if prompt and prompt.Enabled then
-                for _, obj in ipairs(prompt:GetDescendants()) do
-                    -- Cek tombol target
-                    if obj.Name == TARGET_BUTTON and (obj:IsA("ImageButton") or obj:IsA("TextButton")) and obj.Visible then
-                        if isTradeRequest(obj) then
-                            warn("✅ TRADE DETECTED! Menggerakkan mouse ke tombol Yes...")
-                            
-                            -- Panggil fungsi Virtual Click
-                            VirtualClick(obj)
-                            
-                            -- Jeda acak 1.5 - 2.0 detik
-                            local randomClickDelay = math.random(15, 20) / 10 
-                            print("⏳ Menunggu " .. randomClickDelay .. " detik sebelum iterasi berikutnya...")
-                            task.wait(randomClickDelay)
-                        end
-                    end
-                end
-            end
-        end)
-        task.wait(0.5) -- Scan UI setiap 0.5 detik
+        
+        -- Jika prompt yang muncul bukan trade (misal prompt beli item/error), biarkan fungsi asli berjalan normal
+        return oldFirePrompt(self, promptText, ...)
     end
 end)
 
--- // NOTIFIKASI SISTEM //
-game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "Script Active";
-    Text = "Auto Accept Ready (Visual Mouse Mode)";
-    Duration = 4;
-})
+if success then
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "System Ready";
+        Text = "Bypass Controller Aktif! Trade akan di-accept otomatis.";
+        Duration = 5;
+    })
+    print("🔴 AUTO ACCEPT TRADE HOOK: AKTIF")
+else
+    warn("❌ Gagal melakukan Hook pada PromptController: " .. tostring(err))
+end
