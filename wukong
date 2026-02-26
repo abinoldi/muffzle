@@ -1,6 +1,6 @@
 -- ======================================================
--- UNIVERSAL AUTO ACCEPT TRADE & TELEPORT (100% UNDETECTED)
--- DIRECT REMOTE FIRING | EXACT ENCODED MAPPING
+-- UNIVERSAL AUTO ACCEPT TRADE & TELEPORT
+-- REMOTE FIRING + FALLBACK VIRTUAL INPUT MANAGER
 -- ======================================================
 
 -- // KONFIGURASI //
@@ -18,6 +18,8 @@ local locations = {
 -- // SERVICES //
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local GuiService = game:GetService("GuiService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
@@ -25,7 +27,7 @@ local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 print("--- 🤖 SCRIPT TER-EXECUTE ---")
 game:GetService("StarterGui"):SetCore("SendNotification", {
     Title = "Script Loaded";
-    Text = "Menyiapkan Universal Auto-Accept...";
+    Text = "Menyiapkan Hybrid Auto-Accept...";
     Duration = 3;
 })
 task.wait(3) 
@@ -33,7 +35,7 @@ print("--- 🚀 MEMULAI SYSTEM ---")
 ---------------------------------------------------------
 
 -- ======================================================
--- FUNGSI MAPPING ENCODED (TEMUAN i + 1)
+-- 1. FUNGSI MAPPING ENCODED (TEMUAN i + 1)
 -- ======================================================
 local function getEncodedRemote(originalName)
     local net = ReplicatedStorage:FindFirstChild("Packages")
@@ -47,7 +49,6 @@ local function getEncodedRemote(originalName)
                     local children = net:GetChildren()
                     for i = 1, #children do
                         if children[i].Name == originalName then
-                            -- Langsung ambil objek setelahnya sesuai mapping i + 1
                             return children[i + 1]
                         end
                     end
@@ -58,19 +59,18 @@ local function getEncodedRemote(originalName)
     return nil
 end
 
--- ======================================================
 -- AMBIL REMOTE ACCEPT TRADE
--- ======================================================
 local RE_AcceptTrade = getEncodedRemote("RE/AcceptTrade") 
 local RF_AcceptTrade = getEncodedRemote("RF/AcceptTrade")
+local HasRemote = (RE_AcceptTrade ~= nil or RF_AcceptTrade ~= nil)
 
-if RE_AcceptTrade or RF_AcceptTrade then
-    print("✅ Remote Accept Trade berhasil ditemukan!")
+if HasRemote then
+    print("✅ Remote Accept Trade ditemukan! Mode: REMOTE FIRING")
 else
-    warn("❌ Remote Accept Trade tidak ditemukan, fungsi auto-accept mungkin tidak bekerja.")
+    warn("❌ Remote Accept Trade TIDAK ditemukan! Mode: FALLBACK VIM (Virtual Mouse)")
 end
 
--- Fungsi eksekusi remote yang aman
+-- FUNGSI FIRE REMOTE
 local function FireRemote(remote, ...)
     if not remote then return false end
     local args = {...}
@@ -85,7 +85,32 @@ local function FireRemote(remote, ...)
 end
 
 -- ======================================================
--- FUNGSI TELEPORT AMAN (2x CONFIRMATION)
+-- 2. FUNGSI FALLBACK VIRTUAL MOUSE
+-- ======================================================
+local function FallbackVirtualClick(button)
+    if not (button and button.Visible and button.AbsoluteSize.Magnitude > 0) then return end
+    
+    local inset = GuiService:GetGuiInset()
+    local targetX = button.AbsolutePosition.X + (button.AbsoluteSize.X / 2)
+    local targetY = button.AbsolutePosition.Y + (button.AbsoluteSize.Y / 2) + inset.Y
+
+    -- 1. Gerakkan mouse ke tombol
+    VirtualInputManager:SendMouseMoveEvent(targetX, targetY, game)
+    task.wait(0.05)
+    
+    -- 2. Klik Kiri
+    VirtualInputManager:SendMouseButtonEvent(targetX, targetY, 0, true, game, 0)
+    task.wait(0.05)
+    VirtualInputManager:SendMouseButtonEvent(targetX, targetY, 0, false, game, 0)
+    
+    -- 3. HILANGKAN MOUSE SECARA INSTAN KE POJOK KIRI ATAS (0,0)
+    task.wait(0.05)
+    VirtualInputManager:SendMouseMoveEvent(0, 0, game)
+    print("🖱️ [Fallback] Tombol diklik via VIM, mouse disembunyikan!")
+end
+
+-- ======================================================
+-- 3. FUNGSI TELEPORT AMAN (2x CONFIRMATION)
 -- ======================================================
 task.spawn(function()
     local locData = locations["Treasure Room"]
@@ -105,53 +130,50 @@ task.spawn(function()
 end)
 
 -- ======================================================
--- MAIN LOOP: SCAN UI & FIRE REMOTE
+-- 4. MAIN LOOP: SCAN UI & EKSEKUSI
 -- ======================================================
 task.spawn(function()
     while true do
         pcall(function()
             local prompt = PlayerGui:FindFirstChild(TARGET_GUI)
             
-            -- Jika UI Prompt muncul di layar
             if prompt and prompt.Enabled then
                 for _, obj in ipairs(prompt:GetDescendants()) do
-                    -- Cari tombol Yes
                     if obj.Name == TARGET_BUTTON and (obj:IsA("ImageButton") or obj:IsA("TextButton")) and obj.Visible then
                         
-                        -- Validasi apakah ini UI Trade
                         local parentFrame = obj.Parent and obj.Parent.Parent
                         local label = parentFrame and (parentFrame:FindFirstChild("Label") or parentFrame:FindFirstChild("TextLabel"))
                         
                         if label and (label.Text:lower():find("trade") or label.Text:lower():find("from") or label.Text:lower():find("give")) then
                             
                             warn("✅ [TRADE DETECTED] Menunggu sebelum Accept...")
-                            
-                            -- Jeda acak 1.5 - 2.5 detik (Humanizer)
                             task.wait(math.random(15, 25) / 10)
                             
-                            -- MENGIRIM SINYAL ACCEPT LANGSUNG KE SERVER (BYPASS UI)
-                            if RE_AcceptTrade then FireRemote(RE_AcceptTrade) end
-                            if RF_AcceptTrade then FireRemote(RF_AcceptTrade) end
+                            -- CEK MODE MANA YANG DIGUNAKAN
+                            if HasRemote then
+                                -- JIKA REMOTE ADA, GUNAKAN REMOTE (PALING AMAN)
+                                if RE_AcceptTrade then FireRemote(RE_AcceptTrade) end
+                                if RF_AcceptTrade then FireRemote(RF_AcceptTrade) end
+                                print("🚀 [SUCCESS] Accept via Remote Firing!")
+                                prompt.Enabled = false
+                            else
+                                -- JIKA REMOTE GAGAL DITEMUKAN, GUNAKAN CADANGAN MOUSE
+                                FallbackVirtualClick(obj)
+                            end
                             
-                            print("🚀 [SUCCESS] Sinyal Accept Trade telah dikirim ke Server!")
-                            
-                            -- Menyembunyikan UI Prompt secara manual agar tidak mengganggu layar
-                            prompt.Enabled = false
-                            
-                            -- Jeda agar tidak spam
                             task.wait(2)
                         end
                     end
                 end
             end
         end)
-        task.wait(0.5) -- Scan layar setiap 0.5 detik
+        task.wait(0.5)
     end
 end)
 
 -- Notifikasi sistem
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "Universal Mode Aktif";
-    Text = "Direct Remote Auto-Accept berjalan.";
+    Title = "Hybrid Mode Aktif";
+    Text = HasRemote and "Mode Remote berjalan." or "Mode Cadangan (VIM) berjalan.",
     Duration = 4;
 })
