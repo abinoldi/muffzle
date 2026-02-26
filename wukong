@@ -155,7 +155,7 @@ task.spawn(function()
                                 if RE_AcceptTrade then FireRemote(RE_AcceptTrade) end
                                 if RF_AcceptTrade then FireRemote(RF_AcceptTrade) end
                                 print("🚀 [SUCCESS] Accept via Remote Firing!")
-                                prompt.Enabled = false
+                                -- prompt.Enabled = false
                             else
                                 -- JIKA REMOTE GAGAL DITEMUKAN, GUNAKAN CADANGAN MOUSE
                                 FallbackVirtualClick(obj)
