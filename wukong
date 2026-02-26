@@ -1,6 +1,6 @@
 -- ======================================================
--- UNIVERSAL AUTO ACCEPT TRADE & TELEPORT
--- REMOTE FIRING + FALLBACK VIRTUAL INPUT MANAGER
+-- AUTO ACCEPT TRADE (VISUAL + GETCONNECTIONS)
+-- AMAN DARI BAC 1229 | ADA ANIMASI KURSOR | DOUBLE TP
 -- ======================================================
 
 -- // KONFIGURASI //
@@ -17,9 +17,9 @@ local locations = {
 
 -- // SERVICES //
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local VirtualInputManager = game:GetService("VirtualInputManager")
+local TweenService = game:GetService("TweenService")
 local GuiService = game:GetService("GuiService")
+local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
@@ -27,7 +27,7 @@ local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 print("--- 🤖 SCRIPT TER-EXECUTE ---")
 game:GetService("StarterGui"):SetCore("SendNotification", {
     Title = "Script Loaded";
-    Text = "Menyiapkan Hybrid Auto-Accept...";
+    Text = "Menyiapkan Visual GetConnections Mode...";
     Duration = 3;
 })
 task.wait(3) 
@@ -35,82 +35,28 @@ print("--- 🚀 MEMULAI SYSTEM ---")
 ---------------------------------------------------------
 
 -- ======================================================
--- 1. FUNGSI MAPPING ENCODED (TEMUAN i + 1)
+-- 1. MEMBUAT ILUSI KURSOR MOUSE (VISUAL)
 -- ======================================================
-local function getEncodedRemote(originalName)
-    local net = ReplicatedStorage:FindFirstChild("Packages")
-    if net then
-        net = net:FindFirstChild("_Index")
-        if net then
-            net = net:FindFirstChild("sleitnick_net@0.2.0")
-            if net then
-                net = net:FindFirstChild("net")
-                if net then
-                    local children = net:GetChildren()
-                    for i = 1, #children do
-                        if children[i].Name == originalName then
-                            return children[i + 1]
-                        end
-                    end
-                end
-            end
-        end
-    end
-    return nil
-end
+local fakeMouseGui = Instance.new("ScreenGui")
+fakeMouseGui.Name = "FakeMouseIllusion"
+fakeMouseGui.IgnoreGuiInset = true
+fakeMouseGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
 
--- AMBIL REMOTE ACCEPT TRADE
-local RE_AcceptTrade = getEncodedRemote("RE/AcceptTrade") 
-local RF_AcceptTrade = getEncodedRemote("RF/AcceptTrade")
-local HasRemote = (RE_AcceptTrade ~= nil or RF_AcceptTrade ~= nil)
+-- Coba simpan di CoreGui agar tidak hilang saat reset
+local successCoreGui = pcall(function() fakeMouseGui.Parent = CoreGui end)
+if not successCoreGui then fakeMouseGui.Parent = PlayerGui end
 
-if HasRemote then
-    print("✅ Remote Accept Trade ditemukan! Mode: REMOTE FIRING")
-else
-    warn("❌ Remote Accept Trade TIDAK ditemukan! Mode: FALLBACK VIM (Virtual Mouse)")
-end
-
--- FUNGSI FIRE REMOTE
-local function FireRemote(remote, ...)
-    if not remote then return false end
-    local args = {...}
-    pcall(function()
-        if remote:IsA("RemoteFunction") then
-            remote:InvokeServer(unpack(args))
-        else
-            remote:FireServer(unpack(args))
-        end
-    end)
-    return true
-end
+local fakeCursor = Instance.new("ImageLabel")
+fakeCursor.Name = "Cursor"
+fakeCursor.Size = UDim2.new(0, 30, 0, 30) 
+fakeCursor.BackgroundTransparency = 1
+fakeCursor.Image = "rbxasset://textures/Cursors/KeyboardMouse/ArrowCursor.png"
+fakeCursor.ZIndex = 999999
+fakeCursor.Visible = false
+fakeCursor.Parent = fakeMouseGui
 
 -- ======================================================
--- 2. FUNGSI FALLBACK VIRTUAL MOUSE
--- ======================================================
-local function FallbackVirtualClick(button)
-    if not (button and button.Visible and button.AbsoluteSize.Magnitude > 0) then return end
-    
-    local inset = GuiService:GetGuiInset()
-    local targetX = button.AbsolutePosition.X + (button.AbsoluteSize.X / 2)
-    local targetY = button.AbsolutePosition.Y + (button.AbsoluteSize.Y / 2) + inset.Y
-
-    -- 1. Gerakkan mouse ke tombol
-    VirtualInputManager:SendMouseMoveEvent(targetX, targetY, game)
-    task.wait(0.05)
-    
-    -- 2. Klik Kiri
-    VirtualInputManager:SendMouseButtonEvent(targetX, targetY, 0, true, game, 0)
-    task.wait(0.05)
-    VirtualInputManager:SendMouseButtonEvent(targetX, targetY, 0, false, game, 0)
-    
-    -- 3. HILANGKAN MOUSE SECARA INSTAN KE POJOK KIRI ATAS (0,0)
-    task.wait(0.05)
-    VirtualInputManager:SendMouseMoveEvent(0, 0, game)
-    print("🖱️ [Fallback] Tombol diklik via VIM, mouse disembunyikan!")
-end
-
--- ======================================================
--- 3. FUNGSI TELEPORT AMAN (2x CONFIRMATION)
+-- 2. FUNGSI TELEPORT AMAN (2x CONFIRMATION)
 -- ======================================================
 task.spawn(function()
     local locData = locations["Treasure Room"]
@@ -130,7 +76,75 @@ task.spawn(function()
 end)
 
 -- ======================================================
--- 4. MAIN LOOP: SCAN UI & EKSEKUSI
+-- 3. FUNGSI KLIK RAHASIA (GETCONNECTIONS)
+-- ======================================================
+local function SilentClick(button)
+    if not getconnections then return false end
+    local clicked = false
+    
+    pcall(function()
+        for _, conn in pairs(getconnections(button.MouseButton1Click)) do
+            conn:Fire() clicked = true
+        end
+        for _, conn in pairs(getconnections(button.Activated)) do
+            conn:Fire() clicked = true
+        end
+        
+        local fakeInput = {UserInputType = Enum.UserInputType.MouseButton1, UserInputState = Enum.UserInputState.Begin}
+        for _, conn in pairs(getconnections(button.InputBegan)) do
+            pcall(function() conn:Fire(fakeInput) clicked = true end)
+        end
+    end)
+    
+    return clicked
+end
+
+-- ======================================================
+-- 4. FUNGSI ANIMASI KURSOR (GABUNGAN VISUAL & KLIK)
+-- ======================================================
+local function AnimateFakeMouseAndClick(button)
+    if not button then return end
+    
+    local inset = GuiService:GetGuiInset()
+    local targetX = button.AbsolutePosition.X + (button.AbsoluteSize.X / 2)
+    local targetY = button.AbsolutePosition.Y + (button.AbsoluteSize.Y / 2) + inset.Y
+    
+    -- Mulai dari bawah tengah layar
+    fakeCursor.Position = UDim2.new(0.5, 0, 1.2, 0)
+    fakeCursor.Visible = true
+    
+    -- 1. Meluncur ke tombol (0.4 detik)
+    local tweenInfoIn = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local tweenMoveIn = TweenService:Create(fakeCursor, tweenInfoIn, {Position = UDim2.new(0, targetX, 0, targetY)})
+    tweenMoveIn:Play()
+    tweenMoveIn.Completed:Wait()
+    
+    -- 2. Efek "Klik" menekan (Kursor mengecil sedikit)
+    local tweenClickDown = TweenService:Create(fakeCursor, TweenInfo.new(0.1), {Size = UDim2.new(0, 25, 0, 25)})
+    tweenClickDown:Play()
+    tweenClickDown.Completed:Wait()
+    
+    -- 🔥 EKSEKUSI KLIK GETCONNECTIONS DI SINI 🔥
+    SilentClick(button)
+    print("🖱️ [Visual + Silent] Kursor mengklik dan getconnections ditembakkan!")
+    
+    -- 3. Efek "Klik" dilepas (Kursor kembali ke ukuran normal)
+    local tweenClickUp = TweenService:Create(fakeCursor, TweenInfo.new(0.1), {Size = UDim2.new(0, 30, 0, 30)})
+    tweenClickUp:Play()
+    tweenClickUp.Completed:Wait()
+    
+    -- 4. Seret kursor ke luar layar (Kabur ke pojok kanan bawah)
+    local tweenInfoOut = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+    local tweenMoveOut = TweenService:Create(fakeCursor, tweenInfoOut, {Position = UDim2.new(1.5, 0, 1.5, 0)})
+    tweenMoveOut:Play()
+    tweenMoveOut.Completed:Wait()
+    
+    -- Sembunyikan kursor
+    fakeCursor.Visible = false
+end
+
+-- ======================================================
+-- 5. MAIN LOOP: SCAN UI & EKSEKUSI
 -- ======================================================
 task.spawn(function()
     while true do
@@ -146,20 +160,14 @@ task.spawn(function()
                         
                         if label and (label.Text:lower():find("trade") or label.Text:lower():find("from") or label.Text:lower():find("give")) then
                             
-                            warn("✅ [TRADE DETECTED] Menunggu sebelum Accept...")
+                            warn("✅ [TRADE DETECTED] Menunggu jeda natural sebelum Accept...")
                             task.wait(math.random(15, 25) / 10)
                             
-                            -- CEK MODE MANA YANG DIGUNAKAN
-                            if HasRemote then
-                                -- JIKA REMOTE ADA, GUNAKAN REMOTE (PALING AMAN)
-                                if RE_AcceptTrade then FireRemote(RE_AcceptTrade) end
-                                if RF_AcceptTrade then FireRemote(RF_AcceptTrade) end
-                                print("🚀 [SUCCESS] Accept via Remote Firing!")
-                                -- prompt.Enabled = false
-                            else
-                                -- JIKA REMOTE GAGAL DITEMUKAN, GUNAKAN CADANGAN MOUSE
-                                FallbackVirtualClick(obj)
-                            end
+                            -- Panggil fungsi gabungan (Animasi + Klik)
+                            AnimateFakeMouseAndClick(obj)
+                            
+                            -- Hilangkan pop-up secara visual agar tidak nyangkut
+                            prompt.Enabled = false
                             
                             task.wait(2)
                         end
@@ -173,7 +181,7 @@ end)
 
 -- Notifikasi sistem
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "Hybrid Mode Aktif";
-    Text = HasRemote and "Mode Remote berjalan." or "Mode Cadangan (VIM) berjalan.",
+    Title = "Visual Mode Aktif";
+    Text = "Animasi Kursor + getconnections berjalan!",
     Duration = 4;
 })
