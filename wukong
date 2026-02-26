@@ -1,12 +1,11 @@
 -- ======================================================
 -- UNIVERSAL AUTO ACCEPT TRADE & TELEPORT (100% UNDETECTED)
--- DIRECT REMOTE FIRING | SUPPORT ALL EXECUTORS
+-- DIRECT REMOTE FIRING | EXACT ENCODED MAPPING
 -- ======================================================
 
 -- // KONFIGURASI //
 local TARGET_GUI = "Prompt"
 local TARGET_BUTTON = "Yes"
-local TP_INTERVAL = 2
 
 -- // DATA LOKASI //
 local locations = {
@@ -34,21 +33,21 @@ print("--- 🚀 MEMULAI SYSTEM ---")
 ---------------------------------------------------------
 
 -- ======================================================
--- 1. FUNGSI MENCARI REMOTE RAHASIA (ENCODED CACHE)
+-- FUNGSI MAPPING ENCODED (TEMUAN i + 1)
 -- ======================================================
-local function GetRemote(originalName)
+local function getEncodedRemote(originalName)
     local net = ReplicatedStorage:FindFirstChild("Packages")
     if net then
-        local index = net:FindFirstChild("_Index")
-        if index then
-            local sleitnick = index:FindFirstChild("sleitnick_net@0.2.0")
-            if sleitnick then
-                local netFolder = sleitnick:FindFirstChild("net")
-                if netFolder then
-                    local children = netFolder:GetChildren()
+        net = net:FindFirstChild("_Index")
+        if net then
+            net = net:FindFirstChild("sleitnick_net@0.2.0")
+            if net then
+                net = net:FindFirstChild("net")
+                if net then
+                    local children = net:GetChildren()
                     for i = 1, #children do
                         if children[i].Name == originalName then
-                            -- Remote aslinya selalu berada 1 index setelah string namanya
+                            -- Langsung ambil objek setelahnya sesuai mapping i + 1
                             return children[i + 1]
                         end
                     end
@@ -59,9 +58,11 @@ local function GetRemote(originalName)
     return nil
 end
 
+-- ======================================================
 -- AMBIL REMOTE ACCEPT TRADE
-local RE_AcceptTrade = GetRemote("RE/AcceptTrade") 
-local RF_AcceptTrade = GetRemote("RF/AcceptTrade")
+-- ======================================================
+local RE_AcceptTrade = getEncodedRemote("RE/AcceptTrade") 
+local RF_AcceptTrade = getEncodedRemote("RF/AcceptTrade")
 
 if RE_AcceptTrade or RF_AcceptTrade then
     print("✅ Remote Accept Trade berhasil ditemukan!")
@@ -69,6 +70,7 @@ else
     warn("❌ Remote Accept Trade tidak ditemukan, fungsi auto-accept mungkin tidak bekerja.")
 end
 
+-- Fungsi eksekusi remote yang aman
 local function FireRemote(remote, ...)
     if not remote then return false end
     local args = {...}
@@ -83,7 +85,7 @@ local function FireRemote(remote, ...)
 end
 
 -- ======================================================
--- 2. FUNGSI TELEPORT AMAN (2x CONFIRMATION)
+-- FUNGSI TELEPORT AMAN (2x CONFIRMATION)
 -- ======================================================
 task.spawn(function()
     local locData = locations["Treasure Room"]
@@ -103,7 +105,7 @@ task.spawn(function()
 end)
 
 -- ======================================================
--- 3. MAIN LOOP: SCAN UI & FIRE REMOTE
+-- MAIN LOOP: SCAN UI & FIRE REMOTE
 -- ======================================================
 task.spawn(function()
     while true do
