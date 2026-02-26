@@ -1,6 +1,6 @@
 -- ======================================================
--- AUTO ACCEPT TRADE & TELEPORT (ADVANCED HOOK MODE FIX)
--- 100% NO VIM | 3 SECONDS DELAY | ANTI-AFK
+-- AUTO ACCEPT TRADE & TELEPORT (ADVANCED HOOK MODE)
+-- 100% NO VIM | RANDOM DELAY 3-4s | IDLED ANTI-AFK
 -- ======================================================
 
 local locations = {
@@ -51,13 +51,16 @@ if modulesLoaded and PromptController and Promise then
             local textLower = promptText:lower()
             
             if (textLower:find("accept") and textLower:find("from:")) or textLower:find("to give") or textLower:find("trade") then
-                warn("⏳ [HOOK] Trade masuk! Menunggu 3 detik agar game stabil...")
                 
-                -- JEDA 3 DETIK SEBELUM ACCEPT
+                -- JEDA ACAK 3.0 HINGGA 4.0 DETIK
+                local randomDelay = math.random(30, 40) / 10
+                
+                warn("⏳ [HOOK] Trade masuk! Menunggu " .. randomDelay .. " detik agar natural...")
+                
                 return Promise.new(function(resolve)
-                    task.wait(4) -- Jeda yang diminta agar server siap menerima konfirmasi
-                    resolve(true)  -- Mengirim sinyal YES
-                    warn("✅ [SUCCESS] Trade otomatis di-Accept setelah 3 detik!")
+                    task.wait(randomDelay) 
+                    resolve(true) 
+                    warn("✅ [SUCCESS] Trade otomatis di-Accept setelah " .. randomDelay .. " detik!")
                 end)
             end
         end
@@ -65,20 +68,21 @@ if modulesLoaded and PromptController and Promise then
         return getgenv().oldFirePrompt(self, promptText, ...)
     end)
     
-    print("🚀 [SUCCESS] Auto Accept Trade Hook Aktif (Delay 3s)!")
+    print("🚀 [SUCCESS] Auto Accept Trade Hook Aktif (Random Delay 3-4s)!")
 else
     warn("❌ Gagal memuat module PromptController/Promise.")
 end
 
--- // 3. HOOK METAMETHOD (ANTI-AFK) //
-if hookmetamethod and newcclosure then
-    if not getgenv().oldAFKScript then
-        getgenv().oldAFKScript = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-            if getnamecallmethod() == "FireServer" and tostring(self) == "ReconnectPlayer" then 
-                return nil  
+-- // 3. ANTI-AFK (GETCONNECTIONS IDLED) //
+pcall(function()
+    if getconnections then
+        for _, connection in pairs(getconnections(LocalPlayer.Idled)) do
+            if connection.Disable then
+                connection:Disable()
             end
-            return getgenv().oldAFKScript(self, ...)
-        end))
-        print("🛡️ [SUCCESS] Anti-AFK Hook Aktif!")
+        end
+        print("🛡️ [SUCCESS] Anti-AFK (Idled GetConnections) Aktif! Kamu tidak akan ter-kick.")
+    else
+        warn("⚠️ Executor kamu tidak mendukung getconnections untuk Anti-AFK.")
     end
-end
+end)
