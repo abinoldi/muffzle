@@ -93,8 +93,10 @@ function restoreSystemSettings() {
   } catch (e) {}
 }
 
+// ⚠️ MODIFIKASI: Mencegah reset ketika user menekan Ctrl+C
 process.on('SIGINT', () => {
-  restoreSystemSettings();
+  console.log("\n👋 Keluar dari script. Tweak performa tetap AKTIF (Tidak di-reset).");
+  // restoreSystemSettings(); // Baris ini dimatikan
   process.exit(0);
 });
 
@@ -285,7 +287,7 @@ async function main() {
   const packages = getPackages();
   if (!packages.length) { 
     console.log("❌ No Roblox packages found."); 
-    restoreSystemSettings();
+    // restoreSystemSettings(); // Baris ini dimatikan
     process.exit(0); 
   }
 
@@ -308,7 +310,7 @@ async function main() {
 
   if (accounts.length === 0) {
     console.log("❌ Tidak ada akun valid untuk dijalankan.");
-    restoreSystemSettings();
+    // restoreSystemSettings(); // Baris ini dimatikan
     process.exit(0);
   }
 
@@ -317,7 +319,7 @@ async function main() {
   const codes = await fetchLinkCodes();
   if (codes.length === 0) { 
     console.log("⚠️ No codes found."); 
-    restoreSystemSettings();
+    // restoreSystemSettings(); // Baris ini dimatikan
     process.exit(1);
   }
 
@@ -341,7 +343,7 @@ async function main() {
         
         if (isNaN(idx) || idx < 0 || idx >= codes.length) {
             console.log("❌ Invalid selection.");
-            restoreSystemSettings();
+            // restoreSystemSettings(); // Baris ini dimatikan
             process.exit(1);
         }
         cleanCode = codes[idx];
@@ -372,7 +374,7 @@ async function main() {
       accountStates[acc.pkg].serverStatus = "Launching...";
       
       // 🛡️ Beri waktu app jalan, lalu suntik proteksi OOM
-      await sleep(3000); 
+      await sleep(3000);
       await protectProcessFromLMK(acc.pkg);
       
       let crashed = false;
@@ -437,7 +439,7 @@ async function main() {
         // 🛡️ Suntik ulang proteksi OOM setelah re-open
         await sleep(3000);
         await protectProcessFromLMK(acc.pkg);
-
+        
         for(let w = 1; w <= 20; w++) {
            renderDashboard(
               AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
@@ -469,7 +471,9 @@ async function main() {
   
   console.log("\n🧹 Performing Final Memory Release...");
   releaseMemory();
-  restoreSystemSettings();
+  
+  // ⚠️ MODIFIKASI: Mencegah reset sistem di akhir script
+  // restoreSystemSettings(); 
   
   if (allRunning) {
       console.log("\n🎉 [SUKSES] Seluruh akun berhasil diluncurkan dan dipertahankan.");
@@ -477,7 +481,7 @@ async function main() {
       console.log("\n⚠️ [INFO] RAM benar-benar habis. Sistem perlindungan Kernel (Hard Limit) terpicu.");
   }
   
-  console.log("👋 Script exiting (One-Shot Mode).");
+  console.log("👋 Script exiting (One-Shot Mode) - Tweak Performa Tetap AKTIF 🔥");
   process.exit(0);
 }
 
