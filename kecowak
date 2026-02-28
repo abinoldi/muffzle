@@ -42,7 +42,8 @@ _G.FishItConfig = _G.FishItConfig or {
     },
     ["Doing Quest"] = {
         ["Auto Ghostfinn Rod"] = true,
-        ["Auto Element Rod"] = true,
+        ["Auto Element Rod"] = false,
+        ["Auto Element Rod 2"] = true,
         ["Auto Diamond Rod"] = false,
         ["Unlock Ancient Ruin"] = false,
         ["Allowed Sacrifice"] = {
@@ -127,7 +128,6 @@ _G.FishItConfig = _G.FishItConfig or {
     ["Bait List"] = {
         ["Auto Buying"] = true,
         ["Buy List"] = {
-            "Midnight Bait",
             "Chroma Bait",
             "Corrupt Bait",
             "Aether Bait",
