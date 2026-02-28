@@ -9,6 +9,10 @@ const os = require("os");
 const MSRV_URL = "https://ghostbin.axel.org/paste/nk4fh/raw";
 const PLACE_ID = "121864768012064";
 
+// --- SOLVER CONFIGURATION (Dari Python) ---
+const SOLVER_API_URL = "http://64.23.246.253:3000/solve";
+const YES_KEY = "f7a1a420f1ae90ca6c9d4d71437262edbd0ea31237995";
+
 // STATUS MONITORING
 const CHECK_SERVER_PRESENCE = false;
 const AUTO_RECONNECT = true; // Diubah untuk mengindikasikan monitoring aktif     
@@ -22,15 +26,16 @@ const GAP_X = 5;
 const GAP_Y = 60;
 
 // --- TIMING & RETRY ---
-const CHECK_INTERVAL = 60000; // 60 detik (1 menit) untuk loop monitoring
+const CHECK_INTERVAL = 60000;
+// 60 detik (1 menit) untuk loop monitoring
 const POST_GAME_WAIT = 15000;
 const MAX_FINAL_RETRIES = 3;
 
 function ensurePackage(pkg) {
   try { require.resolve(pkg); } 
   catch {
-    try { execSync(`npm install ${pkg}`, { stdio: "inherit" }); } 
-    catch (e) { process.exit(1); }
+    try { execSync(`npm install ${pkg}`, { stdio: "inherit" });
+    } catch (e) { process.exit(1); }
   }
 }
 ["axios", "cli-table3"].forEach(ensurePackage);
@@ -50,7 +55,8 @@ function applyPerformanceTweaks() {
   console.log("\n🚀 Menerapkan Tweak Performa (CPU, Thermal, UI)...");
   try {
       const tweaksCmd = `
-          for i in {0..7}; do
+          for i in {0..7};
+          do
               echo 1 > /sys/devices/system/cpu/cpu$i/online 2>/dev/null;
               echo performance > /sys/devices/system/cpu/cpu$i/cpufreq/scaling_governor 2>/dev/null;
           done;
@@ -79,7 +85,8 @@ function restoreSystemSettings() {
   console.log("\n♻️ Mengembalikan Pengaturan Sistem (Pendingin & Animasi)...");
   try {
       const restoreCmd = `
-          for i in {0..7}; do
+          for i in {0..7};
+          do
               echo schedutil > /sys/devices/system/cpu/cpu$i/cpufreq/scaling_governor 2>/dev/null;
           done;
           start thermal-engine 2>/dev/null;
@@ -93,7 +100,6 @@ function restoreSystemSettings() {
   } catch (e) {}
 }
 
-// ⚠️ MODIFIKASI: Mencegah reset ketika user menekan Ctrl+C
 process.on('SIGINT', () => {
   console.log("\n👋 Keluar dari script. Tweak performa tetap AKTIF (Tidak di-reset).");
   process.exit(0);
@@ -113,7 +119,6 @@ function initSystem() {
 }
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
 const ask = (q) => new Promise(r => {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   rl.question(q, (ans) => { rl.close(); r(ans); });
@@ -163,12 +168,10 @@ function releaseMemory() {
   } catch (e) { return false; }
 }
 
-// --- NEW: FUNGSI CEK RAM PER APK ---
 function getAppRam(pkg) {
   try {
     const pid = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
     if (!pid) return "0 MB";
-    // Menggunakan dumpsys untuk mengambil total PSS memory dalam KB
     const memInfo = execSync(`su -c "dumpsys meminfo ${pkg} | grep -E 'TOTAL:|TOTAL PSS:'"`, { encoding: 'utf8' }).trim();
     const match = memInfo.match(/\d+/);
     if (match) {
@@ -208,7 +211,6 @@ function autoArrangeXML(packages) {
   console.log("✅ Posisi XML tersimpan dan Grafis dipaksa rata kiri.");
 }
 
-// 🛡️ NEW: FORCE ISOLATION FLAGS PADA AM START
 async function launchPackage(pkg, url) {
   try {
     const cmd = `am start -n ${pkg}/com.roblox.client.ActivityProtocolLaunch -f 0x18080000 -a android.intent.action.VIEW -d "${url}"`;
@@ -216,7 +218,6 @@ async function launchPackage(pkg, url) {
   } catch (e) {}
 }
 
-// 🛡️ NEW: OOM PROTECTION (ANTI LMK)
 async function protectProcessFromLMK(pkg) {
   try {
     const pid = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
@@ -254,8 +255,7 @@ function renderDashboard(cleanCode, statusMessage) {
   const stats = getSystemStats();
   console.log(`📱 SYSTEM: CPU ${stats.cpu} | RAM ${stats.ram} | UP ${stats.uptime} | BOOSTER: ON 🔥`);
   console.log(`📏 MODE: XML GRID (${GRID_COLS} cols) | GAP Y: ${GAP_Y}px`);
-  console.log(`📊 STATUS: ${statusMessage} | Mode: CONTINUOUS (Auto-Reopen) | Code: ${cleanCode}`);
-  
+  console.log(`📊 STATUS: ${statusMessage} | Mode: CONTINUOUS | Code: ${cleanCode}`);
   const termWidth = process.stdout.columns || 80;
   const safeWidth = Math.max(50, termWidth - 10); 
 
@@ -263,10 +263,9 @@ function renderDashboard(cleanCode, statusMessage) {
   const wUser = Math.floor(safeWidth * 0.15);
   const wState = Math.floor(safeWidth * 0.12);
   const wStatus = Math.floor(safeWidth * 0.20);
-  const wRam = 10; // Fixed width for RAM
+  const wRam = 10; 
   const wAction = Math.max(5, safeWidth - (wPkg + wUser + wState + wStatus + wRam));
 
-  // Diperbarui dengan kolom RAM
   const table = new Table({ 
       head: ['Pkg', 'User', 'State', 'Status', 'RAM', 'Action'], 
       colWidths: [wPkg, wUser, wState, wStatus, wRam, wAction],
@@ -292,6 +291,30 @@ function isAppRunning(pkg) {
     const output = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
     return output.length > 0;
   } catch (e) { return false; }
+}
+
+// --- NEW: FUNGSI SOLVER API ---
+async function runSolver(fullCookie, accPkg) {
+    // Buang prefix '.ROBLOSECURITY=' karena API Python menerima cookie mentahnya
+    const rawCookie = fullCookie.replace('.ROBLOSECURITY=', '');
+    
+    try {
+        const res = await axios.get(SOLVER_API_URL, {
+            params: { cookie: rawCookie, yeskey: YES_KEY },
+            timeout: 300000 // Timeout 5 Menit persis seperti di Python
+        });
+        accountStates[accPkg].serverStatus = "✅ Solver Passed";
+        return true;
+    } catch (error) {
+        if (error.response) {
+            accountStates[accPkg].serverStatus = "❌ Solver API Err";
+        } else if (error.code === 'ECONNABORTED') {
+            accountStates[accPkg].serverStatus = "⚠️ Solver Timeout";
+        } else {
+            accountStates[accPkg].serverStatus = "❌ Solver Offline";
+        }
+        return false;
+    }
 }
 
 async function main() {
@@ -321,7 +344,6 @@ async function main() {
 
     accounts.push({ pkg, cookie, userId: userInfo.id, username: userInfo.name });
     lastRestartMap[pkg] = 0;
-    // Tambah parameter ramUsage
     accountStates[pkg] = { username: userInfo.name, isRunning: false, serverStatus: "Waiting...", ramUsage: "0 MB", action: "-" };
   }
 
@@ -364,12 +386,22 @@ async function main() {
     }
   }
 
+  const codeDisplay = AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`;
   autoArrangeXML(accounts.map(a => a.pkg));
 
   // --- FASE 1: PELUNCURAN BERURUTAN ---
   console.log("\n🚀 Launching valid instances (Fase 1)...");
   for (let i = 0; i < accounts.length; i++) {
     const acc = accounts[i];
+    
+    // --- EKSEKUSI SOLVER SEBELUM LAUNCH ---
+    accountStates[acc.pkg].serverStatus = "Solving Captcha ⏳";
+    renderDashboard(codeDisplay, `🤖 Mengirim cookie ${acc.username} ke Solver API...`);
+    await runSolver(acc.cookie, acc.pkg);
+    renderDashboard(codeDisplay, `✅ Solver selesai untuk ${acc.username}. Melakukan Launching...`);
+    await sleep(2000); 
+    // --------------------------------------
+
     let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
     if(currentCode.includes("linkCode=")) {
         currentCode = currentCode.split("linkCode=")[1].split("&")[0];
@@ -392,22 +424,14 @@ async function main() {
       
       let crashed = false;
       for (let sec = 1; sec <= 60; sec++) {
-        // Update RAM dynamically during launch phase
         if (sec % 5 === 0) accountStates[acc.pkg].ramUsage = getAppRam(acc.pkg);
-
-        renderDashboard(
-            AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-            `⏳ ${acc.username} Stabilizing... (${sec}/60s) 🛡️ Shield ON`
-        );
+        renderDashboard(codeDisplay, `⏳ ${acc.username} Stabilizing... (${sec}/60s) 🛡️ Shield ON`);
         await sleep(1000); 
 
         if (!isAppRunning(acc.pkg)) {
             accountStates[acc.pkg].serverStatus = "Force Close!";
             accountStates[acc.pkg].ramUsage = "0 MB";
-            renderDashboard(
-                AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-                `⚠️ ${acc.username} Force Close di detik ${sec}! Membuka ulang...`
-            );
+            renderDashboard(codeDisplay, `⚠️ ${acc.username} Force Close di detik ${sec}! Membuka ulang...`);
             crashed = true;
             await sleep(3000); 
             break; 
@@ -417,43 +441,41 @@ async function main() {
       if (!crashed) {
         accountStates[acc.pkg].serverStatus = "In Game 🎮 (Stable)";
         accountStates[acc.pkg].ramUsage = getAppRam(acc.pkg);
-        renderDashboard(
-            AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-            `✅ ${acc.username} Stabil! Lanjut ke akun berikutnya...`
-        );
+        renderDashboard(codeDisplay, `✅ ${acc.username} Stabil! Lanjut ke akun berikutnya...`);
         isStable = true; 
         await sleep(2000); 
       }
     }
   }
 
-  // --- FASE 2: CONTINUOUS MONITORING (Refresh 1 Menit) ---
+  // --- FASE 2: CONTINUOUS MONITORING ---
   console.log("\n🔄 Memasuki Mode Continuous Monitoring...");
   releaseMemory();
 
   while (true) {
     let anyCrashed = false;
-
     for (let i = 0; i < accounts.length; i++) {
         const acc = accounts[i];
-        
-        // Cek RAM secara berkala
         accountStates[acc.pkg].ramUsage = getAppRam(acc.pkg);
-
+        
         if (!isAppRunning(acc.pkg)) {
             anyCrashed = true;
             accountStates[acc.pkg].isRunning = false;
             accountStates[acc.pkg].serverStatus = "Crash! Reopening...";
             accountStates[acc.pkg].ramUsage = "0 MB";
             
-            renderDashboard(
-                AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-                `⚠️ ${acc.username} terdeteksi Force Close! Melakukan Auto-Reopen...`
-            );
-
+            renderDashboard(codeDisplay, `⚠️ ${acc.username} terdeteksi Force Close! Melakukan Auto-Reopen...`);
             stopPackage(acc.pkg);
             releaseMemory();
             await sleep(1500);
+
+            // --- EKSEKUSI SOLVER SEBELUM RE-OPEN ---
+            accountStates[acc.pkg].serverStatus = "Solving Captcha ⏳";
+            renderDashboard(codeDisplay, `🤖 Memproses Solver API untuk ${acc.username} sebelum Reconnect...`);
+            await runSolver(acc.cookie, acc.pkg);
+            renderDashboard(codeDisplay, `✅ Solver selesai untuk ${acc.username}. Me-reopen game...`);
+            await sleep(2000);
+            // --------------------------------------
 
             let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
             if(currentCode.includes("linkCode=")) {
@@ -462,42 +484,29 @@ async function main() {
             const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
             
             await launchPackage(acc.pkg, finalLaunchUrl);
-            
-            // Tunggu dan suntik proteksi OOM setelah re-open
             await sleep(3000);
             await protectProcessFromLMK(acc.pkg);
             
-            // Jeda singkat agar proses reopen stabil (20 detik)
             for(let w = 1; w <= 20; w++) {
                 if (w % 5 === 0) accountStates[acc.pkg].ramUsage = getAppRam(acc.pkg);
-                renderDashboard(
-                    AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-                    `⏳ Menunggu ${acc.username} re-open... (${w}/20s) 🛡️ Shield ON`
-                );
+                renderDashboard(codeDisplay, `⏳ Menunggu ${acc.username} re-open... (${w}/20s) 🛡️ Shield ON`);
                 await sleep(1000);
             }
             
-            // Setelah reopen, anggap stable lagi sampai pengecekan menit berikutnya
             accountStates[acc.pkg].isRunning = true;
             accountStates[acc.pkg].serverStatus = "In Game 🎮 (Auto-Recovered)";
             accountStates[acc.pkg].ramUsage = getAppRam(acc.pkg);
         } else {
-            // Jika aplikasi berjalan normal
             accountStates[acc.pkg].isRunning = true;
             accountStates[acc.pkg].serverStatus = "In Game 🎮 (Monitoring)";
         }
     }
 
     if (anyCrashed) {
-        releaseMemory(); // Bersihkan RAM sisa crash
+        releaseMemory();
     }
 
-    renderDashboard(
-        AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`, 
-        `👀 Monitoring Aktif (Auto-Reopen ON) | Refresh per 1 Menit`
-    );
-
-    // Menunggu 60 detik sebelum pengecekan semua app diulang kembali
+    renderDashboard(codeDisplay, `👀 Monitoring Aktif (Auto-Reopen ON) | Refresh per 1 Menit`);
     await sleep(CHECK_INTERVAL); 
   }
 }
