@@ -9,13 +9,13 @@ const os = require("os");
 const MSRV_URL = "https://ghostbin.axel.org/paste/nk4fh/raw";
 const PLACE_ID = "121864768012064";
 
-// --- SOLVER CONFIGURATION (Dari Python) ---
+// --- SOLVER CONFIGURATION ---
 const SOLVER_API_URL = "http://64.23.246.253:3000/solve";
 const YES_KEY = "f7a1a420f1ae90ca6c9d4d71437262edbd0ea31237995";
 
 // STATUS MONITORING
 const CHECK_SERVER_PRESENCE = false;
-const AUTO_RECONNECT = true; // Diubah untuk mengindikasikan monitoring aktif     
+const AUTO_RECONNECT = true;     
 const AUTO_RANDOM_CODE = false;
 
 // --- GRID SETTINGS (XML) ---
@@ -27,7 +27,6 @@ const GAP_Y = 60;
 
 // --- TIMING & RETRY ---
 const CHECK_INTERVAL = 60000;
-// 60 detik (1 menit) untuk loop monitoring
 const POST_GAME_WAIT = 15000;
 const MAX_FINAL_RETRIES = 3;
 
@@ -295,13 +294,12 @@ function isAppRunning(pkg) {
 
 // --- NEW: FUNGSI SOLVER API ---
 async function runSolver(fullCookie, accPkg) {
-    // Buang prefix '.ROBLOSECURITY=' karena API Python menerima cookie mentahnya
     const rawCookie = fullCookie.replace('.ROBLOSECURITY=', '');
     
     try {
         const res = await axios.get(SOLVER_API_URL, {
             params: { cookie: rawCookie, yeskey: YES_KEY },
-            timeout: 300000 // Timeout 5 Menit persis seperti di Python
+            timeout: 300000 
         });
         accountStates[accPkg].serverStatus = "✅ Solver Passed";
         return true;
@@ -456,15 +454,23 @@ async function main() {
     let anyCrashed = false;
     for (let i = 0; i < accounts.length; i++) {
         const acc = accounts[i];
-        accountStates[acc.pkg].ramUsage = getAppRam(acc.pkg);
         
-        if (!isAppRunning(acc.pkg)) {
+        // Ambil RAM
+        let ramUsageStr = getAppRam(acc.pkg);
+        accountStates[acc.pkg].ramUsage = ramUsageStr;
+        const ramValue = parseFloat(ramUsageStr) || 0;
+        const processRunning = isAppRunning(acc.pkg);
+        
+        // Deteksi proses Zombie jika RAM di bawah 150 MB
+        if (!processRunning || (processRunning && ramValue < 150)) {
             anyCrashed = true;
             accountStates[acc.pkg].isRunning = false;
-            accountStates[acc.pkg].serverStatus = "Crash! Reopening...";
+            
+            let crashReason = !processRunning ? "Force Close!" : `Zombie Process (${ramValue}MB)!`;
+            accountStates[acc.pkg].serverStatus = `Crash: ${crashReason} Reopening...`;
             accountStates[acc.pkg].ramUsage = "0 MB";
             
-            renderDashboard(codeDisplay, `⚠️ ${acc.username} terdeteksi Force Close! Melakukan Auto-Reopen...`);
+            renderDashboard(codeDisplay, `⚠️ ${acc.username} terdeteksi ${crashReason} Melakukan Auto-Reopen...`);
             stopPackage(acc.pkg);
             releaseMemory();
             await sleep(1500);
