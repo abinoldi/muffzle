@@ -26,7 +26,7 @@ const GAP_X = 5;
 const GAP_Y = 60;
 
 // --- TIMING & RETRY ---
-const CHECK_INTERVAL = 60000;
+const CHECK_INTERVAL = 120000;
 const POST_GAME_WAIT = 15000;
 const MAX_FINAL_RETRIES = 3;
 
