@@ -409,7 +409,7 @@ async function main() {
 
         if (!isAppRunning(acc.pkg)) {
             consecutiveMisses++;
-            if (consecutiveMisses >= 10) { // Harus terdeteksi mati 5 DETIK berturut-turut
+            if (consecutiveMisses >= 60) { // Harus terdeteksi mati 5 DETIK berturut-turut
                 accountStates[acc.pkg].serverStatus = "Force Close!";
                 accountStates[acc.pkg].ramUsage = "0 MB";
                 renderDashboard(codeDisplay, `⚠️ ${acc.username} Force Close (Toleransi 5s Habis)! Membuka ulang...`);
