@@ -2,7 +2,7 @@
 
 # =============================================
 # GOFILE INSTALLER (SDCARD / INTERNAL STORAGE VER)
-# VERSION: ZIP EDITION (INSTALL ALL APKS)
+# VERSION: ZIP EDITION (INSTALL ALL APKS) - ROOT BYPASS ED.
 # =============================================
 
 # Konfigurasi
@@ -25,7 +25,6 @@ NC='\033[0m'
 setup_storage() {
     echo -e "${BLUE}[INFO]${NC} Memeriksa akses penyimpanan..."
     
-    # Cek apakah folder /sdcard bisa diakses
     if ls /sdcard >/dev/null 2>&1; then
         echo -e "${GREEN}[OK]${NC} Akses penyimpanan diizinkan."
     else
@@ -43,7 +42,6 @@ setup_storage() {
         fi
     fi
     
-    # Buat folder tujuan
     if [[ ! -d "$STORAGE_DIR" ]]; then
         mkdir -p "$STORAGE_DIR"
         echo -e "${GREEN}[OK]${NC} Folder dibuat: $STORAGE_DIR"
@@ -63,7 +61,6 @@ check_deps() {
 # =============================================
 # 2. LOGIC DOWNLOAD (PYTHON PORT)
 # =============================================
-
 get_account_token() {
     local response=$(curl -s -X POST "https://api.gofile.io/accounts" \
         -H "User-Agent: Mozilla/5.0" \
@@ -75,7 +72,6 @@ get_target_link() {
     local token="$1"
     local content_id=$(echo "$TARGET_URL" | grep -o '[^/]*$')
     
-    # Menggunakan Header X-Website-Token (Anti-Limit)
     local response=$(curl -s "https://api.gofile.io/contents/$content_id?cache=true" \
         -H "Authorization: Bearer $token" \
         -H "Cookie: accountToken=$token" \
@@ -88,7 +84,6 @@ get_target_link() {
         return 1
     fi
     
-    # Cari file zip
     local link=$(echo "$response" | jq -r '.data.children | to_entries[] | .value | select(.name | endswith(".zip")) | .link' | head -n 1)
     echo "$link"
 }
@@ -96,7 +91,6 @@ get_target_link() {
 # =============================================
 # 3. PROSES UTAMA
 # =============================================
-
 run_system() {
     clear
     echo -e "${BLUE}================================${NC}"
@@ -145,9 +139,7 @@ run_system() {
     # --- Extract ZIP ---
     echo -e "${BLUE}[INFO]${NC} Mengekstrak file ZIP..."
     
-    # Cek apakah file ZIP valid
     if unzip -t "$ZIP_FILE" >/dev/null 2>&1; then
-        # Ekstrak langsung ke folder saat ini ($STORAGE_DIR)
         unzip -o "$ZIP_FILE" -d ./ >/dev/null 2>&1
         if [[ $? -eq 0 ]]; then
             echo -e "${GREEN}[OK]${NC} Ekstraksi ZIP berhasil."
@@ -160,15 +152,13 @@ run_system() {
         exit 1
     fi
     
-    # --- Cari semua APK di folder ini ---
+    # --- Cari semua APK ---
     echo -e "${BLUE}[INFO]${NC} Mencari file APK..."
     local apks=($(ls *.apk 2>/dev/null | sort -V))
     local total_apks=${#apks[@]}
     
     if [[ $total_apks -eq 0 ]]; then
         echo -e "${RED}[FAIL]${NC} Tidak ada APK ditemukan di dalam file ZIP tersebut."
-        echo -e "${YELLOW}Isi folder saat ini:${NC}"
-        ls -la
         exit 1
     fi
     
@@ -179,26 +169,26 @@ run_system() {
     echo ""
     
     # --- Install SEMUA APK ---
-    echo -e "${YELLOW}[!]${NC} Meminta akses Root untuk install ${total_apks} APK..."
+    echo -e "${YELLOW}[!]${NC} Memulai instalasi via Root (Bypass Mode)..."
     
-    # Cek apakah su (root) tersedia
     if ! command -v su &>/dev/null; then
         echo -e "${RED}[FAIL]${NC} Akses Root (su) tidak tersedia."
-        echo -e "${GREEN}[TIP]${NC} File APK sudah tersimpan di: $STORAGE_DIR"
-        echo -e "${GREEN}[TIP]${NC} Silakan install manual menggunakan File Manager bawaan HP."
         exit 0
     fi
     
-    echo -e "${BLUE}[INFO]${NC} Mulai install ${total_apks} APK..."
-    echo "----------------------------------------"
+    # Bypass Google Play Protect / App Verifier sementara
+    su -c "settings put global verifier_verify_adb_installs 0" >/dev/null 2>&1
+    su -c "settings put global package_verifier_enable 0" >/dev/null 2>&1
     
+    echo "----------------------------------------"
     local success=0
     local failed=0
     
     for apk in "${apks[@]}"; do
         echo -n "📦 Installing $apk... "
-        # Gunakan su -c untuk menginstall langsung dari $STORAGE_DIR
-        if su -c "pm install -r \"$STORAGE_DIR/$apk\"" >/dev/null 2>&1; then
+        
+        # Eksekusi instalasi senyap dengan flag -r -t -g
+        if su -c "pm install -r -t -g \"$STORAGE_DIR/$apk\"" >/dev/null 2>&1; then
             echo -e "${GREEN}✓ BERHASIL${NC}"
             ((success++))
         else
@@ -206,6 +196,9 @@ run_system() {
             ((failed++))
         fi
     done
+    
+    # Kembalikan pengaturan verifikasi keamanan seperti semula (opsional, tapi disarankan)
+    su -c "settings put global package_verifier_enable 1" >/dev/null 2>&1
     
     echo "----------------------------------------"
     echo -e "${GREEN}✅ Installasi selesai!${NC}"
