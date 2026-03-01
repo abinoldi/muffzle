@@ -183,6 +183,41 @@ function getAppRam(pkg) {
   }
 }
 
+// --- NEW: FUNCTION TO CHECK IF USER IS IN-GAME (BASED ON PRESENCE) ---
+function isUserInGame(pkg) {
+  try {
+    // Check if app is running
+    const pid = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
+    if (!pid) return false;
+    
+    // Check app activity/visibility - if app is in foreground/in-game
+    // Using dumpsys to check if the main activity is visible/running
+    const activityCheck = execSync(`su -c "dumpsys package ${pkg} | grep 'android.intent.category.LAUNCHER' | head -1"`, { encoding: 'utf8' }).trim();
+    const mainActivity = activityCheck.split(' ').pop()?.replace(/\x1b\[[0-9;]*m/g, '') || '';
+    
+    if (mainActivity) {
+      // Check if this activity is in the foreground
+      const foregroundApp = execSync(`su -c "dumpsys window | grep mCurrentFocus"`, { encoding: 'utf8' }).trim();
+      if (foregroundApp.includes(pkg) && foregroundApp.includes(mainActivity)) {
+        return true; // App is in foreground = in-game
+      }
+      
+      // Alternative: check if activity stack exists
+      const activityStack = execSync(`su -c "dumpsys activity activities | grep ${pkg}"`, { encoding: 'utf8' }).trim();
+      if (activityStack.includes(mainActivity)) {
+        return true; // Activity exists in stack (might be background)
+      }
+    }
+    
+    // Fallback: if we can't determine exactly, consider app running as in-game
+    // This is safer than false negatives that would cause unnecessary rejoins
+    return true;
+  } catch (e) {
+    // If any error occurs, assume user is in game to prevent false positives
+    return true;
+  }
+}
+
 function autoArrangeXML(packages) {
   console.log(`\n📐 Mengatur XML (Grid ${GRID_COLS}xN | Size ${BOX_SIZE} | Gap Y ${GAP_Y})...`);
   packages.sort();
@@ -253,7 +288,7 @@ function renderDashboard(cleanCode, statusMessage) {
   console.clear();
   const stats = getSystemStats();
   console.log(`📱 SYSTEM: CPU ${stats.cpu} | RAM ${stats.ram} | UP ${stats.uptime} | BOOSTER: ON 🔥`);
-  console.log(`📏 MODE: XML GRID (${GRID_COLS} cols) | GAP Y: ${GAP_Y}px`);
+  console.log(`📏 MODE: XML GRID (${GRID_COLS} cols) | GAP Y: ${GAP_Y}px | DETEKSI: PRESENCE-BASED`);
   console.log(`📊 STATUS: ${statusMessage} | Mode: CONTINUOUS | Code: ${cleanCode}`);
   const termWidth = process.stdout.columns || 80;
   const safeWidth = Math.max(50, termWidth - 10); 
@@ -292,7 +327,7 @@ function isAppRunning(pkg) {
   } catch (e) { return false; }
 }
 
-// --- NEW: FUNGSI SOLVER API ---
+// --- SOLVER API FUNCTION ---
 async function runSolver(fullCookie, accPkg) {
     const rawCookie = fullCookie.replace('.ROBLOSECURITY=', '');
     
@@ -421,15 +456,15 @@ async function main() {
       await protectProcessFromLMK(acc.pkg);
       
       let crashed = false;
-      for (let sec = 1; sec <= 120; sec++) {
+      for (let sec = 1; sec <= 60; sec++) {
         if (sec % 5 === 0) accountStates[acc.pkg].ramUsage = getAppRam(acc.pkg);
         renderDashboard(codeDisplay, `⏳ ${acc.username} Stabilizing... (${sec}/60s) 🛡️ Shield ON`);
         await sleep(1000); 
 
-        if (!isAppRunning(acc.pkg)) {
-            accountStates[acc.pkg].serverStatus = "Force Close!";
+        if (!isAppRunning(acc.pkg) || !isUserInGame(acc.pkg)) {
+            accountStates[acc.pkg].serverStatus = !isAppRunning(acc.pkg) ? "Force Close!" : "Not In Game!";
             accountStates[acc.pkg].ramUsage = "0 MB";
-            renderDashboard(codeDisplay, `⚠️ ${acc.username} Force Close di detik ${sec}! Membuka ulang...`);
+            renderDashboard(codeDisplay, `⚠️ ${acc.username} ${!isAppRunning(acc.pkg) ? 'Force Close' : 'Keluar Game'} di detik ${sec}! Membuka ulang...`);
             crashed = true;
             await sleep(3000); 
             break; 
@@ -455,23 +490,23 @@ async function main() {
     for (let i = 0; i < accounts.length; i++) {
         const acc = accounts[i];
 
-        // [MODIFIKASI] Beri jeda 3 detik sebelum mengecek akun berikutnya 
-        // agar eksekusi 'su -c' tidak menumpuk dan membebani sistem Termux
         renderDashboard(codeDisplay, `👀 Mengecek status ${acc.username}...`);
         await sleep(3000); 
 
         // Ambil RAM
         let ramUsageStr = getAppRam(acc.pkg);
         accountStates[acc.pkg].ramUsage = ramUsageStr;
-        const ramValue = parseFloat(ramUsageStr) || 0;
         const processRunning = isAppRunning(acc.pkg);
+        
+        // CHECK USER PRESENCE - IN GAME OR NOT (MODIFIED SECTION)
+        const userInGame = processRunning && isUserInGame(acc.pkg);
 
-        // Deteksi proses Zombie jika RAM di bawah 300 MB
-        if (!processRunning || (processRunning && ramValue < 300)) {
+        // Deteksi berdasarkan presence, BUKAN RAM!
+        if (!processRunning || !userInGame) {
             anyCrashed = true;
             accountStates[acc.pkg].isRunning = false;
             
-            let crashReason = !processRunning ? "Force Close!" : `Zombie Process (${ramValue}MB)!`;
+            let crashReason = !processRunning ? "Force Close!" : "User Not In Game!";
             accountStates[acc.pkg].serverStatus = `Crash: ${crashReason} Reopening...`;
             accountStates[acc.pkg].ramUsage = "0 MB";
             
@@ -510,6 +545,7 @@ async function main() {
         } else {
             accountStates[acc.pkg].isRunning = true;
             accountStates[acc.pkg].serverStatus = "In Game 🎮 (Monitoring)";
+            accountStates[acc.pkg].action = "Presence OK";
         }
     }
 
@@ -517,7 +553,7 @@ async function main() {
         releaseMemory();
     }
 
-    renderDashboard(codeDisplay, `👀 Monitoring Selesai (Auto-Reopen ON) | Refresh putaran berikutnya...`);
+    renderDashboard(codeDisplay, `👀 Monitoring Selesai (Presence-Based) | Refresh putaran berikutnya...`);
     await sleep(CHECK_INTERVAL); 
   }
 }
