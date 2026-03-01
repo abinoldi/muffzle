@@ -454,14 +454,19 @@ async function main() {
     let anyCrashed = false;
     for (let i = 0; i < accounts.length; i++) {
         const acc = accounts[i];
-        
+
+        // [MODIFIKASI] Beri jeda 3 detik sebelum mengecek akun berikutnya 
+        // agar eksekusi 'su -c' tidak menumpuk dan membebani sistem Termux
+        renderDashboard(codeDisplay, `👀 Mengecek status ${acc.username}...`);
+        await sleep(3000); 
+
         // Ambil RAM
         let ramUsageStr = getAppRam(acc.pkg);
         accountStates[acc.pkg].ramUsage = ramUsageStr;
         const ramValue = parseFloat(ramUsageStr) || 0;
         const processRunning = isAppRunning(acc.pkg);
-        
-        // Deteksi proses Zombie jika RAM di bawah 150 MB
+
+        // Deteksi proses Zombie jika RAM di bawah 300 MB
         if (!processRunning || (processRunning && ramValue < 300)) {
             anyCrashed = true;
             accountStates[acc.pkg].isRunning = false;
@@ -512,7 +517,7 @@ async function main() {
         releaseMemory();
     }
 
-    renderDashboard(codeDisplay, `👀 Monitoring Aktif (Auto-Reopen ON) | Refresh per 1 Menit`);
+    renderDashboard(codeDisplay, `👀 Monitoring Selesai (Auto-Reopen ON) | Refresh putaran berikutnya...`);
     await sleep(CHECK_INTERVAL); 
   }
 }
