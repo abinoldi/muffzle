@@ -305,7 +305,6 @@ async function main() {
 
     accounts.push({ pkg, cookie, userId: userInfo.id, username: userInfo.name });
     lastRestartMap[pkg] = 0;
-    // Hapus inisialisasi RAM
     accountStates[pkg] = { username: userInfo.name, isRunning: false, serverStatus: "Waiting...", action: "-" };
   }
 
@@ -377,40 +376,22 @@ async function main() {
       await launchPackage(acc.pkg, finalLaunchUrl);
       lastRestartMap[acc.pkg] = Date.now();
       accountStates[acc.pkg].isRunning = true;
-      accountStates[acc.pkg].serverStatus = "Launching & Stabilizing...";
+      accountStates[acc.pkg].serverStatus = "Launching & Loading...";
       
       await sleep(3000);
       await protectProcessFromLMK(acc.pkg);
       
-      let crashed = false;
-      let consecutiveMisses = 0; 
-      
-      // Tunggu hitungan stabilizing selesai
+      // Murni menunggu 60 detik tanpa interupsi
       for (let sec = 1; sec <= 60; sec++) {
-        renderDashboard(codeDisplay, `⏳ ${acc.username} Stabilizing... (${sec}/60s) 🛡️ Shield ON`);
+        renderDashboard(codeDisplay, `⏳ ${acc.username} Loading & Stabilizing... (${sec}/60s) 🛡️ Shield ON`);
         await sleep(1000); 
-
-        if (!isAppRunning(acc.pkg)) {
-            consecutiveMisses++;
-            if (consecutiveMisses >= 5) { // Toleransi 5 detik jika mati di tengah jalan
-                accountStates[acc.pkg].serverStatus = "Force Close!";
-                renderDashboard(codeDisplay, `⚠️ ${acc.username} Force Close (Gagal Stabilizing)! Membuka ulang...`);
-                crashed = true;
-                await sleep(3000); 
-                break; 
-            }
-        } else {
-            consecutiveMisses = 0;
-        }
       }
 
-      // Jika bertahan sampai hitungan selesai, tandai stabil dan lanjut ke app berikutnya
-      if (!crashed) {
-        accountStates[acc.pkg].serverStatus = "In Game 🎮";
-        renderDashboard(codeDisplay, `✅ ${acc.username} Stabil! Lanjut ke akun berikutnya...`);
-        isStable = true; 
-        await sleep(2000); 
-      }
+      // Langsung tandai stabil dan lanjut. Jika gagal masuk, akan dicegat di Fase Monitoring.
+      accountStates[acc.pkg].serverStatus = "In Game 🎮";
+      renderDashboard(codeDisplay, `✅ Waktu tunggu selesai untuk ${acc.username}! Lanjut ke akun berikutnya...`);
+      isStable = true; 
+      await sleep(2000); 
     }
   }
 
