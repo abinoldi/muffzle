@@ -462,7 +462,7 @@ async function main() {
         const processRunning = isAppRunning(acc.pkg);
         
         // Deteksi proses Zombie jika RAM di bawah 150 MB
-        if (!processRunning || (processRunning && ramValue < 150)) {
+        if (!processRunning || (processRunning && ramValue < 300)) {
             anyCrashed = true;
             accountStates[acc.pkg].isRunning = false;
             
