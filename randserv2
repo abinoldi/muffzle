@@ -26,7 +26,7 @@ const GAP_X = 5;
 const GAP_Y = 60;
 
 // --- TIMING & RETRY ---
-const CHECK_INTERVAL = 60000;
+const CHECK_INTERVAL = 120000;
 const POST_GAME_WAIT = 15000;
 const MAX_FINAL_RETRIES = 3;
 
@@ -421,7 +421,7 @@ async function main() {
       await protectProcessFromLMK(acc.pkg);
       
       let crashed = false;
-      for (let sec = 1; sec <= 60; sec++) {
+      for (let sec = 1; sec <= 120; sec++) {
         if (sec % 5 === 0) accountStates[acc.pkg].ramUsage = getAppRam(acc.pkg);
         renderDashboard(codeDisplay, `⏳ ${acc.username} Stabilizing... (${sec}/60s) 🛡️ Shield ON`);
         await sleep(1000); 
@@ -454,15 +454,20 @@ async function main() {
     let anyCrashed = false;
     for (let i = 0; i < accounts.length; i++) {
         const acc = accounts[i];
-        
+
+        // [MODIFIKASI] Beri jeda 3 detik sebelum mengecek akun berikutnya 
+        // agar eksekusi 'su -c' tidak menumpuk dan membebani sistem Termux
+        renderDashboard(codeDisplay, `👀 Mengecek status ${acc.username}...`);
+        await sleep(3000); 
+
         // Ambil RAM
         let ramUsageStr = getAppRam(acc.pkg);
         accountStates[acc.pkg].ramUsage = ramUsageStr;
         const ramValue = parseFloat(ramUsageStr) || 0;
         const processRunning = isAppRunning(acc.pkg);
-        
-        // Deteksi proses Zombie jika RAM di bawah 150 MB
-        if (!processRunning || (processRunning && ramValue < 150)) {
+
+        // Deteksi proses Zombie jika RAM di bawah 300 MB
+        if (!processRunning || (processRunning && ramValue < 300)) {
             anyCrashed = true;
             accountStates[acc.pkg].isRunning = false;
             
@@ -512,7 +517,7 @@ async function main() {
         releaseMemory();
     }
 
-    renderDashboard(codeDisplay, `👀 Monitoring Aktif (Auto-Reopen ON) | Refresh per 1 Menit`);
+    renderDashboard(codeDisplay, `👀 Monitoring Selesai (Auto-Reopen ON) | Refresh putaran berikutnya...`);
     await sleep(CHECK_INTERVAL); 
   }
 }
