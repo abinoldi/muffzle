@@ -148,54 +148,34 @@ function releaseMemory() {
   } catch (e) { return false; }
 }
 
-// 🛡️ NEW: UNIVERSAL PID FINDER (SUPERIOR UNTUK CLOUD EMULATOR)
-function getPid(pkg) {
-    try {
-        // Metode 1: pidof (Standar Linux)
-        let pid = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
-        if (pid) return pid.split(" ")[0];
-    } catch(e) {}
-
-    try {
-        // Metode 2: pgrep (Alternatif)
-        let pid = execSync(`su -c "pgrep -f ${pkg}"`, { encoding: 'utf8' }).trim();
-        if (pid) return pid.split("\n")[0];
-    } catch(e) {}
-
-    try {
-        // Metode 3: ps grep (Metode Klasik Android)
-        let psOutput = execSync(`su -c "ps -A | grep ${pkg}"`, { encoding: 'utf8' }).trim();
-        if (psOutput) {
-            let lines = psOutput.split("\n");
-            for (let line of lines) {
-                if (line.includes(pkg)) {
-                    let parts = line.trim().split(/\s+/);
-                    if (parts[1] && !isNaN(parts[1])) return parts[1]; // Kolom ke-2 adalah PID
-                }
-            }
-        }
-    } catch(e) {}
-
-    return null;
-}
-
+// 🛡️ NEW: DETEKSI PROSES KHUSUS CLOUD (MURNI TANPA SYARAT RAM)
 function isAppRunning(pkg) {
-    return getPid(pkg) !== null;
+    try {
+        // Coba metode 1: pidof
+        let pid = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
+        if (pid.length > 0) return true;
+    } catch(e) {}
+
+    try {
+        // Coba metode 2: ps grep (sebagai cadangan jika pidof gagal di cloud)
+        let ps = execSync(`su -c "ps -A | grep ${pkg}"`, { encoding: 'utf8' }).trim();
+        if (ps.length > 0) return true;
+    } catch(e) {}
+
+    return false;
 }
 
+// Menampilkan RAM hanya untuk tabel, tidak mempengaruhi jalannya script
 function getAppRam(pkg) {
   try {
-    const pid = getPid(pkg);
-    if (!pid) return "0 MB";
-    
-    // Dump meminfo berdasarkan package lebih akurat di beberapa Cloud OS
+    // Dumpsys bisa langsung ditembak menggunakan nama package (tidak perlu PID)
     const memInfo = execSync(`su -c "dumpsys meminfo ${pkg} | grep -E 'TOTAL:|TOTAL PSS:'"`, { encoding: 'utf8' }).trim();
     const match = memInfo.match(/\d+/);
     if (match) {
         const mb = (parseInt(match[0]) / 1024).toFixed(1);
         return `${mb} MB`;
     }
-    return "N/A";
+    return "0 MB";
   } catch (e) {
     return "0 MB";
   }
@@ -203,7 +183,7 @@ function getAppRam(pkg) {
 
 async function protectProcessFromLMK(pkg) {
   try {
-    const pid = getPid(pkg);
+    const pid = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
     if (pid) {
       execSync(`su -c "echo -900 > /proc/${pid}/oom_score_adj"`, { stdio: 'ignore' });
       return true;
@@ -464,20 +444,18 @@ async function main() {
     for (let i = 0; i < accounts.length; i++) {
         const acc = accounts[i];
         
-        let ramUsageStr = getAppRam(acc.pkg);
-        accountStates[acc.pkg].ramUsage = ramUsageStr;
-        const ramValue = parseFloat(ramUsageStr) || 0;
+        accountStates[acc.pkg].ramUsage = getAppRam(acc.pkg);
         const processRunning = isAppRunning(acc.pkg);
         
-        if (!processRunning || (processRunning && ramValue < 150)) {
+        // MURNI DETEKSI PROSES HIDUP ATAU MATI (Tidak pakai batas RAM)
+        if (!processRunning) {
             anyCrashed = true;
             accountStates[acc.pkg].isRunning = false;
             
-            let crashReason = !processRunning ? "Force Close!" : `Zombie Process (${ramValue}MB)!`;
-            accountStates[acc.pkg].serverStatus = `Crash: ${crashReason} Reopening...`;
+            accountStates[acc.pkg].serverStatus = "Crash: Force Close! Reopening...";
             accountStates[acc.pkg].ramUsage = "0 MB";
             
-            renderDashboard(codeDisplay, `⚠️ ${acc.username} terdeteksi ${crashReason} Melakukan Auto-Reopen...`);
+            renderDashboard(codeDisplay, `⚠️ ${acc.username} terdeteksi Force Close! Melakukan Auto-Reopen...`);
             stopPackage(acc.pkg);
             releaseMemory();
             await sleep(1500);
