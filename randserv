@@ -421,7 +421,7 @@ async function main() {
       await protectProcessFromLMK(acc.pkg);
       
       let crashed = false;
-      for (let sec = 1; sec <= 60; sec++) {
+      for (let sec = 1; sec <= 120; sec++) {
         if (sec % 5 === 0) accountStates[acc.pkg].ramUsage = getAppRam(acc.pkg);
         renderDashboard(codeDisplay, `⏳ ${acc.username} Stabilizing... (${sec}/60s) 🛡️ Shield ON`);
         await sleep(1000); 
