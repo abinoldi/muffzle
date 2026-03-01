@@ -148,35 +148,19 @@ function releaseMemory() {
   } catch (e) { return false; }
 }
 
-// 🛡️ DETEKSI PROSES DENGAN PIPA TERPISAH (ANTI-BUG CLOUD)
+// 🛡️ DETEKSI PROSES MURNI (ANTI-BUG CLOUD)
 function isAppRunning(pkg) {
     try {
-        // Metode 1: pidof standar
         let pid = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
         if (pid.length > 0) return true;
     } catch(e) {}
 
     try {
-        // Metode 2: ps grep dengan pemisahan pipe untuk keamanan shell Cloud
         let ps = execSync(`su -c "ps -A" | grep "${pkg}"`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
         if (ps.length > 0) return true;
     } catch(e) {}
 
     return false;
-}
-
-function getAppRam(pkg) {
-  try {
-    const memInfo = execSync(`su -c "dumpsys meminfo ${pkg}" | grep -E 'TOTAL:|TOTAL PSS:'`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-    const match = memInfo.match(/\d+/);
-    if (match) {
-        const mb = (parseInt(match[0]) / 1024).toFixed(1);
-        return `${mb} MB`;
-    }
-    return "0 MB";
-  } catch (e) {
-    return "0 MB";
-  }
 }
 
 async function protectProcessFromLMK(pkg) {
@@ -254,16 +238,15 @@ function renderDashboard(cleanCode, statusMessage) {
   const termWidth = process.stdout.columns || 80;
   const safeWidth = Math.max(50, termWidth - 10); 
 
-  const wPkg = Math.floor(safeWidth * 0.20);
-  const wUser = Math.floor(safeWidth * 0.15);
-  const wState = Math.floor(safeWidth * 0.12);
-  const wStatus = Math.floor(safeWidth * 0.20);
-  const wRam = 10; 
-  const wAction = Math.max(5, safeWidth - (wPkg + wUser + wState + wStatus + wRam));
+  const wPkg = Math.floor(safeWidth * 0.25);
+  const wUser = Math.floor(safeWidth * 0.20);
+  const wState = Math.floor(safeWidth * 0.15);
+  const wStatus = Math.floor(safeWidth * 0.25);
+  const wAction = Math.max(5, safeWidth - (wPkg + wUser + wState + wStatus));
 
   const table = new Table({ 
-      head: ['Pkg', 'User', 'State', 'Status', 'RAM', 'Action'], 
-      colWidths: [wPkg, wUser, wState, wStatus, wRam, wAction],
+      head: ['Pkg', 'User', 'State', 'Status', 'Action'], 
+      colWidths: [wPkg, wUser, wState, wStatus, wAction],
       wordWrap: true 
   });
 
@@ -274,7 +257,6 @@ function renderDashboard(cleanCode, statusMessage) {
       s.username.substring(0, 12),
       s.isRunning ? "Run 🟢" : "Wait ⚪",
       s.serverStatus,
-      s.ramUsage,
       s.action
     ]);
   });
@@ -323,7 +305,8 @@ async function main() {
 
     accounts.push({ pkg, cookie, userId: userInfo.id, username: userInfo.name });
     lastRestartMap[pkg] = 0;
-    accountStates[pkg] = { username: userInfo.name, isRunning: false, serverStatus: "Waiting...", ramUsage: "0 MB", action: "-" };
+    // Hapus inisialisasi RAM
+    accountStates[pkg] = { username: userInfo.name, isRunning: false, serverStatus: "Waiting...", action: "-" };
   }
 
   if (accounts.length === 0) {
@@ -389,42 +372,41 @@ async function main() {
     while (!isStable) {
       stopPackage(acc.pkg); 
       releaseMemory();
-      await sleep(2000); // Ekstra waktu jeda sebelum start ulang
+      await sleep(2000); 
 
       await launchPackage(acc.pkg, finalLaunchUrl);
       lastRestartMap[acc.pkg] = Date.now();
       accountStates[acc.pkg].isRunning = true;
-      accountStates[acc.pkg].serverStatus = "Launching...";
+      accountStates[acc.pkg].serverStatus = "Launching & Stabilizing...";
       
       await sleep(3000);
       await protectProcessFromLMK(acc.pkg);
       
       let crashed = false;
-      let consecutiveMisses = 0; // PENAMBAHAN SISTEM TOLERANSI
+      let consecutiveMisses = 0; 
       
+      // Tunggu hitungan stabilizing selesai
       for (let sec = 1; sec <= 60; sec++) {
-        if (sec % 5 === 0) accountStates[acc.pkg].ramUsage = getAppRam(acc.pkg);
         renderDashboard(codeDisplay, `⏳ ${acc.username} Stabilizing... (${sec}/60s) 🛡️ Shield ON`);
         await sleep(1000); 
 
         if (!isAppRunning(acc.pkg)) {
             consecutiveMisses++;
-            if (consecutiveMisses >= 60) { // Harus terdeteksi mati 5 DETIK berturut-turut
+            if (consecutiveMisses >= 5) { // Toleransi 5 detik jika mati di tengah jalan
                 accountStates[acc.pkg].serverStatus = "Force Close!";
-                accountStates[acc.pkg].ramUsage = "0 MB";
-                renderDashboard(codeDisplay, `⚠️ ${acc.username} Force Close (Toleransi 5s Habis)! Membuka ulang...`);
+                renderDashboard(codeDisplay, `⚠️ ${acc.username} Force Close (Gagal Stabilizing)! Membuka ulang...`);
                 crashed = true;
                 await sleep(3000); 
                 break; 
             }
         } else {
-            consecutiveMisses = 0; // Reset toleransi jika aplikasinya kembali terdeteksi jalan
+            consecutiveMisses = 0;
         }
       }
 
+      // Jika bertahan sampai hitungan selesai, tandai stabil dan lanjut ke app berikutnya
       if (!crashed) {
-        accountStates[acc.pkg].serverStatus = "In Game 🎮 (Stable)";
-        accountStates[acc.pkg].ramUsage = getAppRam(acc.pkg);
+        accountStates[acc.pkg].serverStatus = "In Game 🎮";
         renderDashboard(codeDisplay, `✅ ${acc.username} Stabil! Lanjut ke akun berikutnya...`);
         isStable = true; 
         await sleep(2000); 
@@ -441,10 +423,9 @@ async function main() {
     for (let i = 0; i < accounts.length; i++) {
         const acc = accounts[i];
         
-        accountStates[acc.pkg].ramUsage = getAppRam(acc.pkg);
         let processRunning = isAppRunning(acc.pkg);
         
-        // Double Check untuk Monitoring (Mencegah false alarm di Cloud)
+        // Double Check
         if (!processRunning) {
             await sleep(2000);
             processRunning = isAppRunning(acc.pkg);
@@ -454,8 +435,7 @@ async function main() {
             anyCrashed = true;
             accountStates[acc.pkg].isRunning = false;
             
-            accountStates[acc.pkg].serverStatus = "Crash: Force Close! Reopening...";
-            accountStates[acc.pkg].ramUsage = "0 MB";
+            accountStates[acc.pkg].serverStatus = "Crash! Reopening...";
             
             renderDashboard(codeDisplay, `⚠️ ${acc.username} terdeteksi Force Close! Melakukan Auto-Reopen...`);
             stopPackage(acc.pkg);
@@ -479,14 +459,12 @@ async function main() {
             await protectProcessFromLMK(acc.pkg);
             
             for(let w = 1; w <= 20; w++) {
-                if (w % 5 === 0) accountStates[acc.pkg].ramUsage = getAppRam(acc.pkg);
                 renderDashboard(codeDisplay, `⏳ Menunggu ${acc.username} re-open... (${w}/20s) 🛡️ Shield ON`);
                 await sleep(1000);
             }
             
             accountStates[acc.pkg].isRunning = true;
-            accountStates[acc.pkg].serverStatus = "In Game 🎮 (Auto-Recovered)";
-            accountStates[acc.pkg].ramUsage = getAppRam(acc.pkg);
+            accountStates[acc.pkg].serverStatus = "In Game 🎮";
         } else {
             accountStates[acc.pkg].isRunning = true;
             accountStates[acc.pkg].serverStatus = "In Game 🎮 (Monitoring)";
