@@ -6,7 +6,7 @@ const readline = require("readline");
 const os = require("os");
 
 // --- CONFIGURATION ---
-const MSRV_URL = "https://ghostbin.axel.org/paste/ohdym/raw";
+const MSRV_URL = "https://ghostbin.axel.org/paste/nk4fh/raw";
 const PLACE_ID = "121864768012064";
 
 // --- SOLVER CONFIGURATION ---
@@ -29,6 +29,10 @@ const GAP_Y = 60;
 const CHECK_INTERVAL = 120000;
 const POST_GAME_WAIT = 15000;
 const MAX_FINAL_RETRIES = 3;
+
+// --- DETEKSI SETTINGS ---
+const MIN_RAM_THRESHOLD = 200; // MB - Batas minimal RAM, jika di bawah ini dianggap crash
+const DEBUG_MODE = false; // Set ke true untuk melihat log deteksi
 
 function ensurePackage(pkg) {
   try { require.resolve(pkg); } 
@@ -183,39 +187,160 @@ function getAppRam(pkg) {
   }
 }
 
-// --- NEW: FUNCTION TO CHECK IF USER IS IN-GAME (BASED ON PRESENCE) ---
+// --- FUNCTION TO CHECK IF USER IS IN-GAME (BASED ON PRESENCE) - FIXED VERSION ---
 function isUserInGame(pkg) {
   try {
     // Check if app is running
     const pid = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
-    if (!pid) return false;
-    
-    // Check app activity/visibility - if app is in foreground/in-game
-    // Using dumpsys to check if the main activity is visible/running
-    const activityCheck = execSync(`su -c "dumpsys package ${pkg} | grep 'android.intent.category.LAUNCHER' | head -1"`, { encoding: 'utf8' }).trim();
-    const mainActivity = activityCheck.split(' ').pop()?.replace(/\x1b\[[0-9;]*m/g, '') || '';
-    
-    if (mainActivity) {
-      // Check if this activity is in the foreground
-      const foregroundApp = execSync(`su -c "dumpsys window | grep mCurrentFocus"`, { encoding: 'utf8' }).trim();
-      if (foregroundApp.includes(pkg) && foregroundApp.includes(mainActivity)) {
-        return true; // App is in foreground = in-game
-      }
-      
-      // Alternative: check if activity stack exists
-      const activityStack = execSync(`su -c "dumpsys activity activities | grep ${pkg}"`, { encoding: 'utf8' }).trim();
-      if (activityStack.includes(mainActivity)) {
-        return true; // Activity exists in stack (might be background)
-      }
+    if (!pid) {
+      if (DEBUG_MODE) console.log(`[DEBUG] ${pkg}: No PID found`);
+      return false; // App tidak berjalan
     }
     
-    // Fallback: if we can't determine exactly, consider app running as in-game
-    // This is safer than false negatives that would cause unnecessary rejoins
+    // METHOD 1: Cek foreground app (paling akurat)
+    try {
+      const foregroundApp = execSync(`su -c "dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' | head -1"`, { encoding: 'utf8' }).trim();
+      
+      if (DEBUG_MODE) console.log(`[DEBUG] ${pkg}: Foreground: ${foregroundApp}`);
+      
+      // Jika package name ada di foreground app, berarti sedang aktif
+      if (foregroundApp.includes(pkg)) {
+        return true; // Benar-benar di foreground = in game
+      }
+      
+      // Cek juga apakah ada aktivitas Roblox yang terlihat
+      if (foregroundApp.includes("Roblox") || foregroundApp.includes("roblox")) {
+        return true;
+      }
+    } catch (e) {}
+    
+    // METHOD 2: Cek activity stack untuk melihat apakah ada activity yang visible
+    try {
+      const activityStack = execSync(`su -c "dumpsys activity activities | grep -A 5 '${pkg}' | grep -E 'mVisible=true|ResumedActivity|top-activity'"`, { encoding: 'utf8' }).trim();
+      
+      if (DEBUG_MODE) console.log(`[DEBUG] ${pkg}: Activity visible: ${activityStack.substring(0, 100)}`);
+      
+      if (activityStack.includes("mVisible=true") || 
+          activityStack.includes("ResumedActivity")) {
+        return true; // Activity visible = in game
+      }
+    } catch (e) {}
+    
+    // METHOD 3: Cek process importance
+    try {
+      const procInfo = execSync(`su -c "dumpsys activity processes | grep -A 10 '${pkg}' | grep -E 'importance=|procState='"`, { encoding: 'utf8' }).trim();
+      
+      if (DEBUG_MODE) console.log(`[DEBUG] ${pkg}: Process info: ${procInfo}`);
+      
+      // Importance: 100 = foreground, 200 = visible, >200 = background
+      if (procInfo.includes("importance=100") || procInfo.includes("importance=200") ||
+          procInfo.includes("procState=TOP") || procInfo.includes("procState=IMPORTANT_VISIBLE")) {
+        return true; // Foreground or visible
+      }
+      
+      // Jika importance > 200, berarti di background
+      if (procInfo.includes("importance=")) {
+        const match = procInfo.match(/importance=(\d+)/);
+        if (match && parseInt(match[1]) > 200) {
+          return false; // Background, not in game
+        }
+      }
+    } catch (e) {}
+    
+    // METHOD 4: Cek app state via appops
+    try {
+      const appState = execSync(`su -c "dumpsys appops get ${pkg} | grep -i 'state' | head -1"`, { encoding: 'utf8' }).trim();
+      
+      if (DEBUG_MODE) console.log(`[DEBUG] ${pkg}: App state: ${appState}`);
+      
+      if (appState.includes("FOREGROUND") || appState.includes("TOP") || appState.includes("FOCUSED")) {
+        return true;
+      }
+    } catch (e) {}
+    
+    // METHOD 5: Cek apakah ada window yang terlihat
+    try {
+      const windows = execSync(`su -c "dumpsys window windows | grep -E 'Window.*${pkg}' | grep -v 'mSurface='"`, { encoding: 'utf8' }).trim();
+      
+      if (DEBUG_MODE) console.log(`[DEBUG] ${pkg}: Windows: ${windows.substring(0, 100)}`);
+      
+      if (windows.includes(pkg)) {
+        return true; // Ada window dari package ini
+      }
+    } catch (e) {}
+    
+    // Jika semua method gagal, cek apakah proses ini penting (bukan cached)
+    try {
+      const oomScore = execSync(`su -c "cat /proc/${pid}/oom_score"`, { encoding: 'utf8' }).trim();
+      const oomScoreAdj = execSync(`su -c "cat /proc/${pid}/oom_score_adj"`, { encoding: 'utf8' }).trim();
+      
+      if (DEBUG_MODE) console.log(`[DEBUG] ${pkg}: oom_score=${oomScore}, oom_score_adj=${oomScoreAdj}`);
+      
+      // Foreground app biasanya oom_score_adj = -900 sampai 0
+      if (parseInt(oomScoreAdj) <= 0) {
+        return true; // Kemungkinan foreground
+      }
+      
+      // Cached processes usually have high oom_score
+      if (parseInt(oomScore) > 300) {
+        return false; // Kemungkinan cached/background
+      }
+    } catch (e) {}
+    
+    // Jika masih belum bisa menentukan, cek apakah app visible dengan cara sederhana
+    try {
+      // Coba lihat apakah ada activity dari package ini di stack
+      const stackCheck = execSync(`su -c "dumpsys activity activities | grep -i '${pkg}' | head -5"`, { encoding: 'utf8' }).trim();
+      
+      if (stackCheck.length > 0) {
+        // Ada activity, kemungkinan sedang berjalan
+        return true;
+      }
+    } catch (e) {}
+    
+    // Default: jika ragu dan app masih running, anggap in game (prevent false positive rejoin)
+    if (DEBUG_MODE) console.log(`[DEBUG] ${pkg}: No clear detection, assuming in game based on running process`);
     return true;
+    
   } catch (e) {
-    // If any error occurs, assume user is in game to prevent false positives
-    return true;
+    if (DEBUG_MODE) console.log(`[DEBUG] ${pkg}: Error in isUserInGame: ${e.message}`);
+    // Jika error total, asumsikan tidak dalam game (lebih agresif untuk rejoin)
+    return false;
   }
+}
+
+// --- FUNCTION TO CHECK IF APP IS HEALTHY (RAM > THRESHOLD AND USER IN GAME) ---
+function isAppHealthy(pkg) {
+  // Check 1: Apakah proses berjalan?
+  const processRunning = isAppRunning(pkg);
+  if (!processRunning) {
+    return { healthy: false, reason: "Process Not Running", ram: 0 };
+  }
+  
+  // Check 2: Cek RAM usage
+  const ramStr = getAppRam(pkg);
+  const ramValue = parseFloat(ramStr) || 0;
+  const ramBelowThreshold = ramValue < MIN_RAM_THRESHOLD;
+  
+  // Check 3: Cek Presence (sekarang lebih akurat)
+  const userInGame = isUserInGame(pkg);
+  
+  // Debug output jika diperlukan
+  if (DEBUG_MODE) {
+    console.log(`[DEBUG] ${pkg}: RAM=${ramValue}MB, Threshold=${MIN_RAM_THRESHOLD}MB, InGame=${userInGame}`);
+  }
+  
+  // Logika: Jika RAM di bawah threshold ATAU user tidak dalam game, maka tidak sehat
+  if (ramBelowThreshold) {
+    return { healthy: false, reason: `Low RAM (${ramValue}MB < ${MIN_RAM_THRESHOLD}MB)`, ram: ramValue };
+  }
+  
+  if (!userInGame) {
+    return { healthy: false, reason: "User Not In Game", ram: ramValue };
+  }
+  
+  // Semua check lulus
+  return { healthy: true, reason: "Healthy", ram: ramValue };
 }
 
 function autoArrangeXML(packages) {
@@ -288,7 +413,7 @@ function renderDashboard(cleanCode, statusMessage) {
   console.clear();
   const stats = getSystemStats();
   console.log(`📱 SYSTEM: CPU ${stats.cpu} | RAM ${stats.ram} | UP ${stats.uptime} | BOOSTER: ON 🔥`);
-  console.log(`📏 MODE: XML GRID (${GRID_COLS} cols) | GAP Y: ${GAP_Y}px | DETEKSI: PRESENCE-BASED`);
+  console.log(`📏 MODE: XML GRID (${GRID_COLS} cols) | GAP Y: ${GAP_Y}px | DETEKSI: RAM < ${MIN_RAM_THRESHOLD}MB OR PRESENCE`);
   console.log(`📊 STATUS: ${statusMessage} | Mode: CONTINUOUS | Code: ${cleanCode}`);
   const termWidth = process.stdout.columns || 80;
   const safeWidth = Math.max(50, termWidth - 10); 
@@ -318,6 +443,10 @@ function renderDashboard(cleanCode, statusMessage) {
     ]);
   });
   console.log(table.toString());
+  
+  if (DEBUG_MODE) {
+    console.log("\n🔍 DEBUG MODE AKTIF - Lihat log di atas untuk detail deteksi");
+  }
 }
 
 function isAppRunning(pkg) {
@@ -461,10 +590,12 @@ async function main() {
         renderDashboard(codeDisplay, `⏳ ${acc.username} Stabilizing... (${sec}/60s) 🛡️ Shield ON`);
         await sleep(1000); 
 
-        if (!isAppRunning(acc.pkg) || !isUserInGame(acc.pkg)) {
-            accountStates[acc.pkg].serverStatus = !isAppRunning(acc.pkg) ? "Force Close!" : "Not In Game!";
+        // Gunakan fungsi isAppHealthy untuk deteksi komprehensif
+        const healthCheck = isAppHealthy(acc.pkg);
+        if (!healthCheck.healthy) {
+            accountStates[acc.pkg].serverStatus = `Crash: ${healthCheck.reason}`;
             accountStates[acc.pkg].ramUsage = "0 MB";
-            renderDashboard(codeDisplay, `⚠️ ${acc.username} ${!isAppRunning(acc.pkg) ? 'Force Close' : 'Keluar Game'} di detik ${sec}! Membuka ulang...`);
+            renderDashboard(codeDisplay, `⚠️ ${acc.username} ${healthCheck.reason} di detik ${sec}! Membuka ulang...`);
             crashed = true;
             await sleep(3000); 
             break; 
@@ -493,22 +624,22 @@ async function main() {
         renderDashboard(codeDisplay, `👀 Mengecek status ${acc.username}...`);
         await sleep(3000); 
 
-        // Ambil RAM
+        // Ambil RAM untuk display
         let ramUsageStr = getAppRam(acc.pkg);
         accountStates[acc.pkg].ramUsage = ramUsageStr;
-        const processRunning = isAppRunning(acc.pkg);
         
-        // CHECK USER PRESENCE - IN GAME OR NOT (MODIFIED SECTION)
-        const userInGame = processRunning && isUserInGame(acc.pkg);
+        // CHECK KESEHATAN APP MENGGUNAKAN DUA SISTEM: RAM < 200MB OR PRESENCE FALSE
+        const healthCheck = isAppHealthy(acc.pkg);
 
-        // Deteksi berdasarkan presence, BUKAN RAM!
-        if (!processRunning || !userInGame) {
+        // Jika tidak sehat (RAM < threshold ATAU user tidak dalam game)
+        if (!healthCheck.healthy) {
             anyCrashed = true;
             accountStates[acc.pkg].isRunning = false;
             
-            let crashReason = !processRunning ? "Force Close!" : "User Not In Game!";
+            let crashReason = healthCheck.reason;
             accountStates[acc.pkg].serverStatus = `Crash: ${crashReason} Reopening...`;
             accountStates[acc.pkg].ramUsage = "0 MB";
+            accountStates[acc.pkg].action = `⚠️ ${crashReason}`;
             
             renderDashboard(codeDisplay, `⚠️ ${acc.username} terdeteksi ${crashReason} Melakukan Auto-Reopen...`);
             stopPackage(acc.pkg);
@@ -533,19 +664,20 @@ async function main() {
             await sleep(3000);
             await protectProcessFromLMK(acc.pkg);
             
-            for(let w = 1; w <= 20; w++) {
+            for(let w = 1; w <= 60; w++) {
                 if (w % 5 === 0) accountStates[acc.pkg].ramUsage = getAppRam(acc.pkg);
-                renderDashboard(codeDisplay, `⏳ Menunggu ${acc.username} re-open... (${w}/20s) 🛡️ Shield ON`);
+                renderDashboard(codeDisplay, `⏳ Menunggu ${acc.username} re-open... (${w}/60s) 🛡️ Shield ON`);
                 await sleep(1000);
             }
             
             accountStates[acc.pkg].isRunning = true;
             accountStates[acc.pkg].serverStatus = "In Game 🎮 (Auto-Recovered)";
             accountStates[acc.pkg].ramUsage = getAppRam(acc.pkg);
+            accountStates[acc.pkg].action = "Recovered";
         } else {
             accountStates[acc.pkg].isRunning = true;
             accountStates[acc.pkg].serverStatus = "In Game 🎮 (Monitoring)";
-            accountStates[acc.pkg].action = "Presence OK";
+            accountStates[acc.pkg].action = `✅ ${healthCheck.ram}MB`;
         }
     }
 
@@ -553,7 +685,7 @@ async function main() {
         releaseMemory();
     }
 
-    renderDashboard(codeDisplay, `👀 Monitoring Selesai (Presence-Based) | Refresh putaran berikutnya...`);
+    renderDashboard(codeDisplay, `👀 Monitoring Selesai (RAM < ${MIN_RAM_THRESHOLD}MB OR Presence) | Refresh putaran berikutnya...`);
     await sleep(CHECK_INTERVAL); 
   }
 }
