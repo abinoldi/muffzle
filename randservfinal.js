@@ -74,7 +74,7 @@ function applyPerformanceTweaks() {
           settings put global animator_duration_scale 0 2>/dev/null;
       `;
       execSync(`su -c '${tweaksCmd}'`, { stdio: 'ignore' });
-      console.log("   ✅ Tweak Performa Aktif! (HP mungkin akan terasa lebih hangat)");
+      console.log("   ✅ Tweak Performa Aktif!");
   } catch (e) {
       console.log("   ❌ Gagal menerapkan tweak performa.");
   }
@@ -148,28 +148,26 @@ function releaseMemory() {
   } catch (e) { return false; }
 }
 
-// 🛡️ NEW: DETEKSI PROSES KHUSUS CLOUD (MURNI TANPA SYARAT RAM)
+// 🛡️ DETEKSI PROSES DENGAN PIPA TERPISAH (ANTI-BUG CLOUD)
 function isAppRunning(pkg) {
     try {
-        // Coba metode 1: pidof
-        let pid = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
+        // Metode 1: pidof standar
+        let pid = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
         if (pid.length > 0) return true;
     } catch(e) {}
 
     try {
-        // Coba metode 2: ps grep (sebagai cadangan jika pidof gagal di cloud)
-        let ps = execSync(`su -c "ps -A | grep ${pkg}"`, { encoding: 'utf8' }).trim();
+        // Metode 2: ps grep dengan pemisahan pipe untuk keamanan shell Cloud
+        let ps = execSync(`su -c "ps -A" | grep "${pkg}"`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
         if (ps.length > 0) return true;
     } catch(e) {}
 
     return false;
 }
 
-// Menampilkan RAM hanya untuk tabel, tidak mempengaruhi jalannya script
 function getAppRam(pkg) {
   try {
-    // Dumpsys bisa langsung ditembak menggunakan nama package (tidak perlu PID)
-    const memInfo = execSync(`su -c "dumpsys meminfo ${pkg} | grep -E 'TOTAL:|TOTAL PSS:'"`, { encoding: 'utf8' }).trim();
+    const memInfo = execSync(`su -c "dumpsys meminfo ${pkg}" | grep -E 'TOTAL:|TOTAL PSS:'`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
     const match = memInfo.match(/\d+/);
     if (match) {
         const mb = (parseInt(match[0]) / 1024).toFixed(1);
@@ -183,7 +181,7 @@ function getAppRam(pkg) {
 
 async function protectProcessFromLMK(pkg) {
   try {
-    const pid = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
+    const pid = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
     if (pid) {
       execSync(`su -c "echo -900 > /proc/${pid}/oom_score_adj"`, { stdio: 'ignore' });
       return true;
@@ -217,7 +215,7 @@ function autoArrangeXML(packages) {
     "`;
     try { execSync(cmd, { stdio: 'ignore' }); } catch (e) {}
   });
-  console.log("✅ Posisi XML tersimpan dan Grafis dipaksa rata kiri.");
+  console.log("✅ Posisi XML tersimpan.");
 }
 
 async function launchPackage(pkg, url) {
@@ -283,10 +281,8 @@ function renderDashboard(cleanCode, statusMessage) {
   console.log(table.toString());
 }
 
-// --- FUNGSI SOLVER API ---
 async function runSolver(fullCookie, accPkg) {
     const rawCookie = fullCookie.replace('.ROBLOSECURITY=', '');
-    
     try {
         const res = await axios.get(SOLVER_API_URL, {
             params: { cookie: rawCookie, yeskey: YES_KEY },
@@ -295,13 +291,7 @@ async function runSolver(fullCookie, accPkg) {
         accountStates[accPkg].serverStatus = "✅ Solver Passed";
         return true;
     } catch (error) {
-        if (error.response) {
-            accountStates[accPkg].serverStatus = "❌ Solver API Err";
-        } else if (error.code === 'ECONNABORTED') {
-            accountStates[accPkg].serverStatus = "⚠️ Solver Timeout";
-        } else {
-            accountStates[accPkg].serverStatus = "❌ Solver Offline";
-        }
+        accountStates[accPkg].serverStatus = "❌ Solver Err/TMO";
         return false;
     }
 }
@@ -399,7 +389,7 @@ async function main() {
     while (!isStable) {
       stopPackage(acc.pkg); 
       releaseMemory();
-      await sleep(1500); 
+      await sleep(2000); // Ekstra waktu jeda sebelum start ulang
 
       await launchPackage(acc.pkg, finalLaunchUrl);
       lastRestartMap[acc.pkg] = Date.now();
@@ -410,18 +400,25 @@ async function main() {
       await protectProcessFromLMK(acc.pkg);
       
       let crashed = false;
+      let consecutiveMisses = 0; // PENAMBAHAN SISTEM TOLERANSI
+      
       for (let sec = 1; sec <= 60; sec++) {
         if (sec % 5 === 0) accountStates[acc.pkg].ramUsage = getAppRam(acc.pkg);
         renderDashboard(codeDisplay, `⏳ ${acc.username} Stabilizing... (${sec}/60s) 🛡️ Shield ON`);
         await sleep(1000); 
 
         if (!isAppRunning(acc.pkg)) {
-            accountStates[acc.pkg].serverStatus = "Force Close!";
-            accountStates[acc.pkg].ramUsage = "0 MB";
-            renderDashboard(codeDisplay, `⚠️ ${acc.username} Force Close di detik ${sec}! Membuka ulang...`);
-            crashed = true;
-            await sleep(3000); 
-            break; 
+            consecutiveMisses++;
+            if (consecutiveMisses >= 10) { // Harus terdeteksi mati 5 DETIK berturut-turut
+                accountStates[acc.pkg].serverStatus = "Force Close!";
+                accountStates[acc.pkg].ramUsage = "0 MB";
+                renderDashboard(codeDisplay, `⚠️ ${acc.username} Force Close (Toleransi 5s Habis)! Membuka ulang...`);
+                crashed = true;
+                await sleep(3000); 
+                break; 
+            }
+        } else {
+            consecutiveMisses = 0; // Reset toleransi jika aplikasinya kembali terdeteksi jalan
         }
       }
 
@@ -445,9 +442,14 @@ async function main() {
         const acc = accounts[i];
         
         accountStates[acc.pkg].ramUsage = getAppRam(acc.pkg);
-        const processRunning = isAppRunning(acc.pkg);
+        let processRunning = isAppRunning(acc.pkg);
         
-        // MURNI DETEKSI PROSES HIDUP ATAU MATI (Tidak pakai batas RAM)
+        // Double Check untuk Monitoring (Mencegah false alarm di Cloud)
+        if (!processRunning) {
+            await sleep(2000);
+            processRunning = isAppRunning(acc.pkg);
+        }
+        
         if (!processRunning) {
             anyCrashed = true;
             accountStates[acc.pkg].isRunning = false;
@@ -458,7 +460,7 @@ async function main() {
             renderDashboard(codeDisplay, `⚠️ ${acc.username} terdeteksi Force Close! Melakukan Auto-Reopen...`);
             stopPackage(acc.pkg);
             releaseMemory();
-            await sleep(1500);
+            await sleep(2000);
 
             accountStates[acc.pkg].serverStatus = "Solving Captcha ⏳";
             renderDashboard(codeDisplay, `🤖 Memproses Solver API untuk ${acc.username} sebelum Reconnect...`);
