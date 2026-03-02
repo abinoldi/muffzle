@@ -1,14 +1,10 @@
 -- ======================================================
--- AUTO ACCEPT TRADE & TELEPORT (ADVANCED HOOK MODE)
--- 100% NO VIM | RANDOM DELAY 3-4s | IDLED ANTI-AFK
+-- AUTO ACCEPT TRADE & TELEPORT KE RANDOM PLAYER (ADVANCED HOOK MODE)
+-- 100% NO VIM | RANDOM DELAY 3-4s | ANTI-AFK | AUTO-DISCONNECT
 -- ======================================================
 
-local locations = {
-    ["Treasure Room"] = {
-        Pos = Vector3.new(-3561.297, -279.074, -1606.289), 
-        Look = Vector3.new(-0.782, -0.000, -0.623)
-    }
-}
+local lastTradeTime = tick() -- Mencatat waktu awal saat script dijalankan
+local IDLE_LIMIT = 300 -- Batas waktu 5 menit (300 detik)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -18,18 +14,42 @@ local LocalPlayer = Players.LocalPlayer
 print("--- 🤖 MENGINISIALISASI SCRIPT ---")
 ---------------------------------------------------------
 
--- // 1. FUNGSI TELEPORT AMAN //
+-- // 1. FUNGSI TELEPORT KE RANDOM PLAYER //
 task.spawn(function()
-    local locData = locations["Treasure Room"]
+    task.wait(2) -- Menunggu sebentar agar karakter kita load sepenuhnya
     local myChar = LocalPlayer.Character
     
     if myChar and myChar:FindFirstChild("HumanoidRootPart") then
         local myHRP = myChar.HumanoidRootPart
-        for i = 1, 2 do
-            pcall(function() myHRP.CFrame = CFrame.new(locData.Pos, locData.Pos + locData.Look) end)
-            if i == 1 then task.wait(1) end
+        
+        -- Mengambil daftar semua player di server
+        local playersList = Players:GetPlayers()
+        local validTargets = {}
+        
+        -- Memfilter player: Kecualikan diri sendiri dan pastikan mereka punya karakter
+        for _, p in ipairs(playersList) do
+            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                table.insert(validTargets, p)
+            end
         end
-        print("📍 Teleportasi selesai.")
+        
+        -- Jika ada player lain di server
+        if #validTargets > 0 then
+            -- Pilih satu player secara acak
+            local targetPlayer = validTargets[math.random(1, #validTargets)]
+            local targetHRP = targetPlayer.Character.HumanoidRootPart
+            
+            for i = 1, 2 do
+                pcall(function() 
+                    -- Teleport ke player tersebut dengan offset 3 stud ke belakang agar tidak stuck
+                    myHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 0, 3) 
+                end)
+                if i == 1 then task.wait(1) end
+            end
+            print("📍 Teleportasi selesai ke player: " .. targetPlayer.Name)
+        else
+            warn("⚠️ Tidak ada player lain di server saat ini.")
+        end
     end
 end)
 
@@ -51,6 +71,9 @@ if modulesLoaded and PromptController and Promise then
             local textLower = promptText:lower()
             
             if (textLower:find("accept") and textLower:find("from:")) or textLower:find("to give") or textLower:find("trade") then
+                
+                -- RESET WAKTU KARENA ADA AKTIVITAS TRADE
+                lastTradeTime = tick()
                 
                 -- JEDA ACAK 3.0 HINGGA 4.0 DETIK
                 local randomDelay = math.random(30, 40) / 10
@@ -81,8 +104,23 @@ pcall(function()
                 connection:Disable()
             end
         end
-        print("🛡️ [SUCCESS] Anti-AFK (Idled GetConnections) Aktif! Kamu tidak akan ter-kick.")
+        print("🛡️ [SUCCESS] Anti-AFK (Idled GetConnections) Aktif! Kamu tidak akan ter-kick karena diam.")
     else
         warn("⚠️ Executor kamu tidak mendukung getconnections untuk Anti-AFK.")
+    end
+end)
+
+-- // 4. AUTO DISCONNECT JIKA TIDAK ADA TRADE (5 MENIT) //
+task.spawn(function()
+    while task.wait(5) do -- Mengecek setiap 5 detik agar tidak memberatkan performa
+        local timeSinceLastTrade = tick() - lastTradeTime
+        
+        if timeSinceLastTrade >= IDLE_LIMIT then
+            warn("⚠️ Tidak ada trade selama 5 menit. Memaksa keluar ke Home...")
+            task.wait(1)
+            -- Menggunakan Kick() untuk mengembalikan akun ke layar Home Roblox dengan aman
+            LocalPlayer:Kick("Tidak ada aktivitas trade selama 5 menit. Auto-disconnect.")
+            break -- Menghentikan loop pengecekan
+        end
     end
 end)
