@@ -15,7 +15,7 @@ const SOLVER_API_URL = "http://64.23.246.253:3000/solve";
 const YES_KEY = "f7a1a420f1ae90ca6c9d4d71437262edbd0ea31237995";
 
 // STATUS MONITORING
-const CHECK_SERVER_PRESENCE = true;
+const CHECK_SERVER_PRESENCE = false;
 const AUTO_RECONNECT = true;     
 const AUTO_RANDOM_CODE = false;
 
@@ -29,11 +29,12 @@ const GAP_Y = 60;
 // --- TIMING & RETRY ---
 const CHECK_INTERVAL = 120000; // 2 menit
 const POST_GAME_WAIT = 15000;
-const MAX_FINAL_RETRIES = 5;
+const MAX_FINAL_RETRIES = 3;
 
 // --- DETEKSI SETTINGS ---
-const MIN_RAM_THRESHOLD = 200; // MB - Jika RAM di bawah ini, langsung rejoin
-const DEBUG_MODE = true; // Set ke true untuk melihat log deteksi
+const MIN_RAM_THRESHOLD = 100; // MB - Jika RAM di bawah ini, langsung rejoin
+const PRESENCE_CHECK_DELAY = 60000; // 1 menit - Tunggu sebelum cek presence pertama
+const DEBUG_MODE = false; // Set ke true untuk melihat log deteksi
 
 function ensurePackage(pkg) {
   try { require.resolve(pkg); } 
@@ -54,6 +55,7 @@ const SQLITE_PATH = `${TERMUX_PREFIX}/sqlite3`;
 let lastRestartMap = {};
 let accountStates = {};
 let csrfTokens = {}; // Menyimpan CSRF token per akun
+let launchTimers = {}; // Menyimpan waktu launch per akun
 
 // --- PERFORMANCE BOOSTER ---
 function applyPerformanceTweaks() {
@@ -305,17 +307,31 @@ async function refreshRamUsage(pkg) {
 
 // --- FUNCTION TO CHECK IF USER IS IN-GAME (COMBINED METHODS) ---
 async function isUserInGame(pkg, cookie, userId) {
-  // METHOD 1: Cek via Roblox API (PALING AKURAT)
+  // CEK APAKAH SUDAH MELEWATI DELAY 1 MENIT SEJAK LAUNCH?
+  const now = Date.now();
+  const lastLaunch = launchTimers[pkg] || 0;
+  const timeSinceLaunch = now - lastLaunch;
+  
+  // Jika belum 1 menit sejak launch, anggap masih dalam proses loading
+  if (lastLaunch > 0 && timeSinceLaunch < PRESENCE_CHECK_DELAY) {
+    if (DEBUG_MODE) {
+      console.log(`[DEBUG] ${pkg}: Still in cooldown (${Math.round(timeSinceLaunch/1000)}s/${PRESENCE_CHECK_DELAY/1000}s)`);
+    }
+    // Return true agar tidak di-rejoin, tapi dengan catatan "Loading"
+    return { isInGame: true, status: "loading", timeRemaining: PRESENCE_CHECK_DELAY - timeSinceLaunch };
+  }
+  
+  // METHOD 1: Cek via Roblox API (PALING AKURAT) - hanya jika sudah lewat 1 menit
   if (cookie && userId) {
     const robloxPresence = await checkRobloxPresence(cookie, userId, pkg);
     if (robloxPresence.isInGame) {
-      return true;
+      return { isInGame: true, status: "in-game", source: "roblox-api" };
     }
     
     // Jika Roblox API bilang offline, double-check dengan local detection
     if (robloxPresence.presenceType === 0) {
       // User benar-benar offline menurut Roblox
-      return false;
+      return { isInGame: false, status: "offline", source: "roblox-api" };
     }
   }
   
@@ -324,7 +340,7 @@ async function isUserInGame(pkg, cookie, userId) {
     const foregroundApp = execSync(`su -c "dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' | head -1"`, { encoding: 'utf8' }).trim();
     
     if (foregroundApp.includes(pkg) || foregroundApp.includes("Roblox")) {
-      return true;
+      return { isInGame: true, status: "in-game", source: "foreground" };
     }
   } catch (e) {}
   
@@ -332,7 +348,7 @@ async function isUserInGame(pkg, cookie, userId) {
   try {
     const visibleActivity = execSync(`su -c "dumpsys activity activities | grep -B 5 -A 5 '${pkg}' | grep -E 'mVisible=true|ResumedActivity'"`, { encoding: 'utf8' }).trim();
     if (visibleActivity) {
-      return true;
+      return { isInGame: true, status: "in-game", source: "activity" };
     }
   } catch (e) {}
   
@@ -340,11 +356,11 @@ async function isUserInGame(pkg, cookie, userId) {
   try {
     const procInfo = execSync(`su -c "dumpsys activity processes | grep -A 5 '${pkg}' | grep -E 'importance='"`, { encoding: 'utf8' }).trim();
     if (procInfo.includes("importance=100") || procInfo.includes("importance=200")) {
-      return true;
+      return { isInGame: true, status: "in-game", source: "importance" };
     }
   } catch (e) {}
   
-  return false;
+  return { isInGame: false, status: "unknown" };
 }
 
 // --- FUNCTION TO CHECK IF APP IS HEALTHY - WITH ROBLOX API PRESENCE ---
@@ -359,14 +375,7 @@ async function isAppHealthy(pkg, cookie, userId) {
   const ramStr = getAppRam(pkg);
   const ramValue = parseFloat(ramStr) || 0;
   
-  // Check 3: Cek Presence via Roblox API (PRIORITAS UTAMA)
-  const userInGame = await isUserInGame(pkg, cookie, userId);
-  
-  if (DEBUG_MODE) {
-    console.log(`[DEBUG] ${pkg}: RAM=${ramValue}MB, InGame=${userInGame}`);
-  }
-  
-  // JIKA RAM SANGAT RENDAH (< 100MB), langsung rejoin
+  // JIKA RAM SANGAT RENDAH (< 100MB), langsung rejoin (indikasi crash)
   if (ramValue < MIN_RAM_THRESHOLD && ramValue > 0) {
     return { 
       healthy: false, 
@@ -376,11 +385,29 @@ async function isAppHealthy(pkg, cookie, userId) {
     };
   }
   
-  // Jika user tidak dalam game menurut Roblox API, REJOIN
-  if (!userInGame) {
+  // Check 3: Cek Presence via Roblox API (hanya jika sudah lewat 1 menit)
+  const presenceResult = await isUserInGame(pkg, cookie, userId);
+  
+  if (DEBUG_MODE) {
+    console.log(`[DEBUG] ${pkg}: RAM=${ramValue}MB, Presence=${presenceResult.status}, Source=${presenceResult.source}`);
+  }
+  
+  // Jika masih dalam masa loading (belum 1 menit), anggap sehat
+  if (presenceResult.status === "loading") {
+    return { 
+      healthy: true, 
+      reason: `Loading (${Math.round(presenceResult.timeRemaining/1000)}s left)`, 
+      ram: ramValue,
+      priority: "normal",
+      loading: true
+    };
+  }
+  
+  // Jika user tidak dalam game, REJOIN
+  if (!presenceResult.isInGame) {
     return { 
       healthy: false, 
-      reason: "User Not In Game (Roblox Offline)", 
+      reason: "User Not In Game", 
       ram: ramValue,
       priority: "high"
     };
@@ -426,6 +453,8 @@ async function launchPackage(pkg, url) {
   try {
     const cmd = `am start -n ${pkg}/com.roblox.client.ActivityProtocolLaunch -f 0x18080000 -a android.intent.action.VIEW -d "${url}"`;
     execSync(cmd, { stdio: 'ignore' });
+    // Catat waktu launch
+    launchTimers[pkg] = Date.now();
   } catch (e) {}
 }
 
@@ -465,7 +494,7 @@ function renderDashboard(cleanCode, statusMessage) {
   console.clear();
   const stats = getSystemStats();
   console.log(`📱 SYSTEM: CPU ${stats.cpu} | RAM ${stats.ram} | UP ${stats.uptime} | BOOSTER: ON 🔥`);
-  console.log(`📏 MODE: XML GRID (${GRID_COLS} cols) | GAP Y: ${GAP_Y}px | DETEKSI: ROBLOX API PRESENCE`);
+  console.log(`📏 MODE: XML GRID (${GRID_COLS} cols) | GAP Y: ${GAP_Y}px | DETEKSI: ROBLOX API (1m cooldown)`);
   console.log(`📊 STATUS: ${statusMessage} | Mode: CONTINUOUS | Code: ${cleanCode}`);
   
   const termWidth = process.stdout.columns || 80;
@@ -643,7 +672,9 @@ async function main() {
         renderDashboard(codeDisplay, `⏳ ${acc.username} Stabilizing... (${sec}/60s) 🛡️ Shield ON`);
         await sleep(1000); 
 
+        // Cek kesehatan tapi dengan cooldown presence 1 menit
         const healthCheck = await isAppHealthy(acc.pkg, acc.cookie, acc.userId);
+        
         if (!healthCheck.healthy) {
             accountStates[acc.pkg].serverStatus = `Crash: ${healthCheck.reason}`;
             await refreshRamUsage(acc.pkg);
@@ -651,6 +682,9 @@ async function main() {
             crashed = true;
             await sleep(3000); 
             break; 
+        } else if (healthCheck.loading) {
+            // Masih dalam masa loading, tampilkan status loading
+            accountStates[acc.pkg].serverStatus = `⏳ ${healthCheck.reason}`;
         }
       }
 
@@ -678,12 +712,19 @@ async function main() {
 
         await refreshRamUsage(acc.pkg);
         
-        // CHECK KESEHATAN DENGAN ROBLOX API PRESENCE
+        // CHECK KESEHATAN DENGAN ROBLOX API PRESENCE (dengan cooldown 1 menit)
         const healthCheck = await isAppHealthy(acc.pkg, acc.cookie, acc.userId);
 
         if (healthCheck.healthy) {
           accountStates[acc.pkg].isRunning = true;
-          accountStates[acc.pkg].serverStatus = "In Game 🎮 (Monitoring)";
+          
+          if (healthCheck.loading) {
+            // Masih dalam masa loading setelah rejoin
+            accountStates[acc.pkg].serverStatus = `⏳ ${healthCheck.reason}`;
+          } else {
+            accountStates[acc.pkg].serverStatus = "In Game 🎮 (Monitoring)";
+          }
+          
           accountStates[acc.pkg].action = `✅ ${healthCheck.ram}MB`;
         } else {
           anyCrashed = true;
