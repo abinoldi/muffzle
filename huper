@@ -1,12 +1,30 @@
 const axios = require('axios');
 const { exec } = require('child_process');
+const readline = require('readline');
 
 // --- KONFIGURASI ---
-const COOKIE = "_|WARNING:-DO-NOT-SHARE-THIS.--Sharing-this-will-allow-someone-to-log-in-as-you-and-to-steal-your-ROBUX-and-items.|_CAEaAhADIhsKBGR1aWQSEzQ5MzIxNDA3MDM5ODM2OTYzNTIoAw.VuIsSNCv6r5NV_kKLEhSB5Kjp_ev_Nc3JiJImASTSLRwdP-KRkU1UHQxvumKxBBFLUI1wLDP1cOn4uAEs2xYABEbX32ObjZiOTmC8xYj-y6Aw_Nsm_9y3NmbsGm1HXuERfLfpIFQxaCyy-4t5TzspB0jZ0lRBWnDc4NsvdVUvEoxEDgvhUFLfor5dNQpXJAxJFw5-qBlKA7g7454tIIx1eQ3Sg_9g-7syI04jNPYDXHsEEsfczTeNgL4My4nn38X-M3HPZwT7OBTpOf7gYEYryA3NbL2F5q9341uIctYLLBIxJX6_Pj5PtyTxx9oq9DUNvPxhMZ-g_lnTaUDoGoW4JmCUUO6N2VwiXONqANjD1OxBfnV8R8Kwvv68a5OW1AJpOMpwvK55NF-S8-RJhz5ggxybe4ySc2KpKCAI4fhrYv40wFIQtc66TbCYx7XJUw5nKMcruc2mUWDXpCkgxM68PuqoepkC5luQpREF6A30Q3Qp031j2wWnrPEKk9VYeEbQy2YAxuHQVgkdzRbH2rMzvJj11AmbQRvFhUypLcnJEKLm2D2eAKY7UZVYbUvs1IGMKy0ndnGSVL2blvuVinGR1Ez3gA09XLSeg2XFm8ntHNP2D8zGjnsBWYdzUz6Dr7jw7vjWjPP8mPfy3nugLePgGyqkYgvMi4in-bx_cX6NEnsppsLGCrYqEDXM94wCopMh7R3wwNub-WRtMsmvR3B4NEok1GCwbVyUxdXju-Fx5109AKjihgX0vscD2mMx-TJzFTuh8M5ZhMdmE_YX97g-2N2Lv8";
 const GHOSTBIN_URL = "https://ghostbin.axel.org/paste/nk4fh/raw";
-const PACKAGE_NAME = "com.roblox.clienb"; // Sesuaikan jika pakai clienb atau nama lain
-const CHECK_INTERVAL = 60000; // 1 menit (ms)
+const PACKAGE_NAME = "com.roblox.clienb";
 const PLACE_ID = "121864768012064";
+const CHECK_INTERVAL = 60000; // 1 menit (ms)
+const STABILIZATION_DELAY = 45000; // 45 detik untuk loading awal
+
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+});
+
+function askCookie() {
+    return new Promise((resolve) => {
+        rl.question('\n[?] Masukkan Cookie Roblox (.ROBLOSECURITY):\n> ', (input) => {
+            let cleanCookie = input.trim();
+            if (cleanCookie.startsWith('.ROBLOSECURITY=')) {
+                cleanCookie = cleanCookie.replace('.ROBLOSECURITY=', '');
+            }
+            resolve(cleanCookie);
+        });
+    });
+}
 
 async function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -25,12 +43,12 @@ async function getAuthenticatedUser(cookie) {
         const response = await axios.get('https://users.roblox.com/v1/users/authenticated', {
             headers: {
                 'Cookie': `.ROBLOSECURITY=${cookie}`,
-                'User-Agent': 'Mozilla/5.0'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
             }
         });
         return response.data;
     } catch (error) {
-        console.error("❌ Cookie Expired atau Invalid!");
+        console.error("❌ Gagal mendapatkan info user (Cookie mungkin expired/invalid).");
         return null;
     }
 }
@@ -41,7 +59,7 @@ async function getCsrfToken(cookie) {
             headers: { 'Cookie': `.ROBLOSECURITY=${cookie}` }
         });
     } catch (error) {
-        return error.response.headers['x-csrf-token'];
+        return error.response ? error.response.headers['x-csrf-token'] : null;
     }
 }
 
@@ -57,68 +75,109 @@ async function checkPresence(userId, cookie, csrf) {
                 }
             }
         );
-        return response.data.userPresences[0].userPresenceType; 
-        // 0: Offline, 1: Online, 2: InGame, 3: Studio
+        return response.data.userPresences[0];
     } catch (err) {
+        console.error("⚠️ Gagal mengecek presence:", err.message);
         return null;
     }
 }
 
 async function start() {
-    console.log("🚀 Memulai Script Auto Rejoin...");
-    
-    // 1. Ambil LinkCodes
-    let linkCodes = [];
-    try {
-        const res = await axios.get(GHOSTBIN_URL);
-        linkCodes = res.data.split('\n').map(s => s.trim()).filter(s => s.length > 0);
-        console.log(`📦 Berhasil mengambil ${linkCodes.length} linkCodes.`);
-    } catch (e) {
-        console.error("❌ Gagal mengambil data dari Ghostbin.");
-        return;
+    console.clear();
+    console.log("========================================");
+    console.log("   🚀 AUTO REJOIN ROBLOX SCRIPT 🚀   ");
+    console.log("========================================");
+
+    // 1. Minta Input Cookie
+    const COOKIE = await askCookie();
+    rl.close(); // Tutup interface input setelah dapat cookie
+
+    if (!COOKIE || COOKIE.length < 50) {
+        console.log("❌ Input cookie tidak valid! Script dihentikan.");
+        process.exit(1);
     }
 
+    // 2. Autentikasi User
     const userData = await getAuthenticatedUser(COOKIE);
-    if (!userData) return;
-    
-    const userId = userData.id;
-    console.log(`✅ Login sebagai: ${userData.displayName} (${userId})`);
+    if (!userData) {
+        process.exit(1);
+    }
+    console.log(`\n✅ Berhasil Login: ${userData.displayName} (@${userData.name}) - ID: ${userData.id}`);
 
-    // 2. Iterasi LinkCodes
+    // 3. Ambil LinkCodes dari Ghostbin
+    let linkCodes = [];
+    try {
+        console.log("⏳ Mengambil link codes dari Ghostbin...");
+        const res = await axios.get(GHOSTBIN_URL);
+        linkCodes = res.data.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+        console.log(`📦 Berhasil mendapatkan ${linkCodes.length} link codes.`);
+    } catch (e) {
+        console.error("❌ Gagal mengambil data dari Ghostbin.");
+        process.exit(1);
+    }
+
+    // 4. Proses Loop Setiap Link Code
     for (let i = 0; i < linkCodes.length; i++) {
         const currentCode = linkCodes[i];
-        console.log(`\n[${i + 1}/${linkCodes.length}] Mencoba Join Code: ${currentCode}`);
-
-        // Launch Roblox
+        console.log(`\n========================================`);
+        console.log(`[${i + 1}/${linkCodes.length}] Memproses Link Code: ${currentCode}`);
+        
+        // Buka Roblox
         const launchCmd = `su -c "am start -n ${PACKAGE_NAME}/com.roblox.client.ActivityProtocolLaunch -a android.intent.action.VIEW -d 'roblox://placeID=${PLACE_ID}&linkCode=${currentCode}'"`;
+        console.log("▶️ Menjalankan aplikasi Roblox...");
         await runCommand(launchCmd);
         
-        console.log("⏳ Menunggu 30 detik untuk proses loading game...");
-        await sleep(30000);
+        // Tunggu game loading (Stabilization period)
+        console.log(`⏳ Menunggu ${STABILIZATION_DELAY / 1000} detik agar game terbuka penuh...`);
+        await sleep(STABILIZATION_DELAY);
 
-        // 3. Monitoring Loop
-        while (true) {
+        // 5. Monitoring Loop per Menit
+        let isOnline = true;
+        while (isOnline) {
             const csrf = await getCsrfToken(COOKIE);
-            const status = await checkPresence(userId, COOKIE, csrf);
-            
-            const statusMap = { 0: 'Offline', 1: 'Online', 2: 'In-Game', 3: 'Studio' };
-            console.log(`[${new Date().toLocaleTimeString()}] Status: ${statusMap[status] || 'Unknown'}`);
-
-            if (status === 0 || status === null) {
-                console.log("⚠️ Akun Offline! Melakukan Force Close...");
-                await runCommand(`su -c "am force-stop ${PACKAGE_NAME}"`);
-                
-                if (i === linkCodes.length - 1) {
-                    console.log("🏁 Semua link sudah selesai digunakan. Script berhenti.");
-                    return;
-                }
-                console.log("➡️ Pindah ke linkCode berikutnya...");
-                break; // Keluar dari while loop untuk ambil linkCode selanjutnya
+            if (!csrf) {
+                console.log("⚠️ Gagal mendapatkan CSRF Token, mencoba lagi menit depan...");
+                await sleep(CHECK_INTERVAL);
+                continue;
             }
 
-            await sleep(CHECK_INTERVAL);
+            const presenceData = await checkPresence(userData.id, COOKIE, csrf);
+            const statusMap = { 0: 'Offline', 1: 'Online', 2: 'In-Game', 3: 'Studio' };
+            
+            if (presenceData) {
+                const statusType = presenceData.userPresenceType;
+                console.log(`[${new Date().toLocaleTimeString()}] Status: ${statusMap[statusType]} | Lokasi: ${presenceData.lastLocation || 'N/A'}`);
+
+                // Jika status Offline (0)
+                if (statusType === 0) {
+                    console.log("🔴 Akun terdeteksi OFFLINE!");
+                    isOnline = false; // Keluar dari loop monitoring
+                }
+            } else {
+                // Jika gagal cek, asumsikan offline untuk aman, atau tetap tunggu (di sini diasumsikan offline agar tidak stuck)
+                console.log("🔴 Data presence kosong, mengasumsikan OFFLINE.");
+                isOnline = false;
+            }
+
+            if (isOnline) {
+                await sleep(CHECK_INTERVAL); // Tunggu 1 menit sebelum cek lagi
+            }
+        }
+
+        // 6. Force Close setelah Offline
+        console.log(`🛑 Melakukan Force Close pada ${PACKAGE_NAME}...`);
+        await runCommand(`su -c "am force-stop ${PACKAGE_NAME}"`);
+
+        // Cek apakah ini link terakhir
+        if (i === linkCodes.length - 1) {
+            console.log("\n🏁 Semua link code sudah diproses. Script selesai dan dihentikan.");
+            process.exit(0);
+        } else {
+            console.log("➡️ Bersiap pindah ke link code selanjutnya...");
+            await sleep(5000); // Jeda 5 detik sebelum buka app lagi
         }
     }
 }
 
+// Jalankan Script
 start();
