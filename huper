@@ -1,0 +1,124 @@
+const axios = require('axios');
+const { exec } = require('child_process');
+
+// --- KONFIGURASI ---
+const COOKIE = "_|WARNING:-DO-NOT-SHARE-THIS.--Sharing-this-will-allow-someone-to-log-in-as-you-and-to-steal-your-ROBUX-and-items.|_CAEaAhADIhsKBGR1aWQSEzQ5MzIxNDA3MDM5ODM2OTYzNTIoAw.VuIsSNCv6r5NV_kKLEhSB5Kjp_ev_Nc3JiJImASTSLRwdP-KRkU1UHQxvumKxBBFLUI1wLDP1cOn4uAEs2xYABEbX32ObjZiOTmC8xYj-y6Aw_Nsm_9y3NmbsGm1HXuERfLfpIFQxaCyy-4t5TzspB0jZ0lRBWnDc4NsvdVUvEoxEDgvhUFLfor5dNQpXJAxJFw5-qBlKA7g7454tIIx1eQ3Sg_9g-7syI04jNPYDXHsEEsfczTeNgL4My4nn38X-M3HPZwT7OBTpOf7gYEYryA3NbL2F5q9341uIctYLLBIxJX6_Pj5PtyTxx9oq9DUNvPxhMZ-g_lnTaUDoGoW4JmCUUO6N2VwiXONqANjD1OxBfnV8R8Kwvv68a5OW1AJpOMpwvK55NF-S8-RJhz5ggxybe4ySc2KpKCAI4fhrYv40wFIQtc66TbCYx7XJUw5nKMcruc2mUWDXpCkgxM68PuqoepkC5luQpREF6A30Q3Qp031j2wWnrPEKk9VYeEbQy2YAxuHQVgkdzRbH2rMzvJj11AmbQRvFhUypLcnJEKLm2D2eAKY7UZVYbUvs1IGMKy0ndnGSVL2blvuVinGR1Ez3gA09XLSeg2XFm8ntHNP2D8zGjnsBWYdzUz6Dr7jw7vjWjPP8mPfy3nugLePgGyqkYgvMi4in-bx_cX6NEnsppsLGCrYqEDXM94wCopMh7R3wwNub-WRtMsmvR3B4NEok1GCwbVyUxdXju-Fx5109AKjihgX0vscD2mMx-TJzFTuh8M5ZhMdmE_YX97g-2N2Lv8";
+const GHOSTBIN_URL = "https://ghostbin.axel.org/paste/nk4fh/raw";
+const PACKAGE_NAME = "com.roblox.clienb"; // Sesuaikan jika pakai clienb atau nama lain
+const CHECK_INTERVAL = 60000; // 1 menit (ms)
+const PLACE_ID = "121864768012064";
+
+async function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function runCommand(cmd) {
+    return new Promise((resolve) => {
+        exec(cmd, (error, stdout, stderr) => {
+            resolve(stdout ? stdout.trim() : "");
+        });
+    });
+}
+
+async function getAuthenticatedUser(cookie) {
+    try {
+        const response = await axios.get('https://users.roblox.com/v1/users/authenticated', {
+            headers: {
+                'Cookie': `.ROBLOSECURITY=${cookie}`,
+                'User-Agent': 'Mozilla/5.0'
+            }
+        });
+        return response.data;
+    } catch (error) {
+        console.error("❌ Cookie Expired atau Invalid!");
+        return null;
+    }
+}
+
+async function getCsrfToken(cookie) {
+    try {
+        await axios.post('https://auth.roblox.com/v2/logout', {}, {
+            headers: { 'Cookie': `.ROBLOSECURITY=${cookie}` }
+        });
+    } catch (error) {
+        return error.response.headers['x-csrf-token'];
+    }
+}
+
+async function checkPresence(userId, cookie, csrf) {
+    try {
+        const response = await axios.post('https://presence.roblox.com/v1/presence/users', 
+            { userIds: [userId] },
+            {
+                headers: {
+                    'Cookie': `.ROBLOSECURITY=${cookie}`,
+                    'x-csrf-token': csrf,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+        return response.data.userPresences[0].userPresenceType; 
+        // 0: Offline, 1: Online, 2: InGame, 3: Studio
+    } catch (err) {
+        return null;
+    }
+}
+
+async function start() {
+    console.log("🚀 Memulai Script Auto Rejoin...");
+    
+    // 1. Ambil LinkCodes
+    let linkCodes = [];
+    try {
+        const res = await axios.get(GHOSTBIN_URL);
+        linkCodes = res.data.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+        console.log(`📦 Berhasil mengambil ${linkCodes.length} linkCodes.`);
+    } catch (e) {
+        console.error("❌ Gagal mengambil data dari Ghostbin.");
+        return;
+    }
+
+    const userData = await getAuthenticatedUser(COOKIE);
+    if (!userData) return;
+    
+    const userId = userData.id;
+    console.log(`✅ Login sebagai: ${userData.displayName} (${userId})`);
+
+    // 2. Iterasi LinkCodes
+    for (let i = 0; i < linkCodes.length; i++) {
+        const currentCode = linkCodes[i];
+        console.log(`\n[${i + 1}/${linkCodes.length}] Mencoba Join Code: ${currentCode}`);
+
+        // Launch Roblox
+        const launchCmd = `su -c "am start -n ${PACKAGE_NAME}/com.roblox.client.ActivityProtocolLaunch -a android.intent.action.VIEW -d 'roblox://placeID=${PLACE_ID}&linkCode=${currentCode}'"`;
+        await runCommand(launchCmd);
+        
+        console.log("⏳ Menunggu 30 detik untuk proses loading game...");
+        await sleep(30000);
+
+        // 3. Monitoring Loop
+        while (true) {
+            const csrf = await getCsrfToken(COOKIE);
+            const status = await checkPresence(userId, COOKIE, csrf);
+            
+            const statusMap = { 0: 'Offline', 1: 'Online', 2: 'In-Game', 3: 'Studio' };
+            console.log(`[${new Date().toLocaleTimeString()}] Status: ${statusMap[status] || 'Unknown'}`);
+
+            if (status === 0 || status === null) {
+                console.log("⚠️ Akun Offline! Melakukan Force Close...");
+                await runCommand(`su -c "am force-stop ${PACKAGE_NAME}"`);
+                
+                if (i === linkCodes.length - 1) {
+                    console.log("🏁 Semua link sudah selesai digunakan. Script berhenti.");
+                    return;
+                }
+                console.log("➡️ Pindah ke linkCode berikutnya...");
+                break; // Keluar dari while loop untuk ambil linkCode selanjutnya
+            }
+
+            await sleep(CHECK_INTERVAL);
+        }
+    }
+}
+
+start();
