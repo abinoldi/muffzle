@@ -5,10 +5,10 @@
 # =============================================
 
 # Konfigurasi
-TARGET_URL="https://gofile.io/d/OGGtb3"
+TARGET_URL="https://gofile.io/d/t6Zx0"
 # Folder ini akan muncul di Internal Storage -> Download
 STORAGE_DIR="/sdcard/Download/Gofile-Installer" 
-RAR_FILE="codexitil.zip"
+RAR_FILE="codexlite.zip"
 INSTALL_COUNT=7
 WT_TOKEN="4fd6sg89d7s6"
 
