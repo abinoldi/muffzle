@@ -1,69 +1,42 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-# ===== GET TERMINAL WIDTH =====
-get_width() {
-    local w
-    w=$(tput cols 2>/dev/null)
-    [ -z "$w" ] && w=$(stty size 2>/dev/null | awk '{print $2}')
-    [ -z "$w" ] && w=60
-    [ "$w" -lt 50 ] && w=50
-    echo "$w"
-}
+# Ambil lebar terminal
+COLS=$(tput cols 2>/dev/null)
+[ -z "$COLS" ] && COLS=60
+[ "$COLS" -lt 50 ] && COLS=50
 
-COLS=$(get_width)
+# Garis separator
+LINE=$(printf "%0.s-" $(seq 1 $COLS))
 
-# ===== COLORS =====
-C='\033[1;36m'
-G='\033[1;32m'
-Y='\033[1;33m'
-NC='\033[0m'
-
-# ===== CENTER TEXT =====
-center() {
-    local text="$1"
-    local pad=$(( (COLS - ${#text}) / 2 ))
-    printf "%*s%s\n" $pad "" "$text"
-}
-
-# ===== PRINT LINE SEPARATOR =====
-line() {
-    printf "%0.s─" $(seq 1 $COLS)
-    echo
-}
-
-# ===== PRINT ITEM =====
-print_item() {
-    local key="$1"
-    local val="$2"
-    printf "${C}%-15s${NC} : ${G}%s${NC}\n" "$key" "$val"
-}
-
-# ===== GET DEVICE DATA =====
+# Ambil data
+DEVICE=$(getprop ro.product.name | tr -d '\r\n')
 MODEL=$(getprop ro.product.model | tr -d '\r\n')
 BRAND=$(getprop ro.product.brand | tr -d '\r\n')
 BOARD=$(getprop ro.board.platform | tr -d '\r\n')
-AID=$(settings get secure android_id | tr -d '\r\n')
+ANDROID_ID=$(settings get secure android_id | tr -d '\r\n')
 SERIAL=$(getprop ro.serialno | tr -d '\r\n')
 MAC=$(cat /sys/class/net/wlan0/address 2>/dev/null | tr -d '\r\n')
-[ -z "$MAC" ] && MAC="Not Available"
-IMEI=$(su -c "service call iphonesubinfo 1" 2>/dev/null | awk -F "'" '{print $2}' | sed 's/\.//g' | tr -d '\r\n' | cut -c1-15)
-[ -z "$IMEI" ] && IMEI="Permission Denied"
+IMEI=$(su -c "service call iphonesubinfo 1" 2>/dev/null | awk -F "'" '{print $2}' | sed 's/\.//g' | cut -c1-15)
 
 clear
 
-line
-center "${Y}DEVICE INFORMATION${NC}"
-line
+echo "License     : Tidak terdeteksi"
+echo "$LINE"
 echo
+echo "PROFIL SET 7/8 (Grup 7)"
+echo "$LINE"
 
-print_item "Device" "$MODEL"
-print_item "Brand" "$BRAND"
-print_item "Board" "$BOARD"
-print_item "Android ID" "$AID"
-print_item "Serial" "$SERIAL"
-print_item "MAC Address" "$MAC"
-print_item "IMEI" "$IMEI"
+printf "%-12s : %s\n" "Device" "$DEVICE"
+printf "%-12s : %s\n" "Model" "$MODEL"
+printf "%-12s : %s\n" "Brand" "$BRAND"
+printf "%-12s : %s\n" "Board" "$BOARD"
+printf "%-12s : %s\n" "Android ID" "$ANDROID_ID"
+printf "%-12s : %s\n" "Serial" "$SERIAL"
+printf "%-12s : %s\n" "MAC" "$MAC"
+printf "%-12s : %s\n" "IMEI baru" "$IMEI"
+printf "%-12s : %s\n" "License" "-"
+printf "%-12s : %s\n" "IMEI skrg" "$IMEI"
 
+echo "$LINE"
 echo
-line
-echo
+echo -n "Apply FULL SPOOF? (y/n) > "
