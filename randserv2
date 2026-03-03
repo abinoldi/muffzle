@@ -32,7 +32,7 @@ const POST_GAME_WAIT = 15000;
 const MAX_FINAL_RETRIES = 3;
 
 // --- DETEKSI SETTINGS ---
-const MIN_RAM_THRESHOLD = 180; // MB - Jika RAM di bawah ini, langsung rejoin
+const MIN_RAM_THRESHOLD = 20; // MB - Jika RAM di bawah ini, langsung rejoin
 const PRESENCE_CHECK_DELAY = 60000; // 1 menit - Tunggu sebelum cek presence pertama
 const DEBUG_MODE = false; // Set ke true untuk melihat log deteksi
 
