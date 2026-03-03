@@ -1,22 +1,33 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-# Ambil data device
+# Warna
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+
+# Ambil lebar terminal (Flexible)
+WIDTH=$(tput cols)
+[ $WIDTH -gt 50 ] && WIDTH=50 # Batas maksimal biar gak terlalu lebar
+
+line() { printf "${CYAN}%.s-${NC}" $(seq 1 $WIDTH); echo; }
+
+# Ambil Data (Simpan ke variabel agar rapi)
 MODEL=$(getprop ro.product.model)
 BRAND=$(getprop ro.product.brand)
 BOARD=$(getprop ro.board.platform)
-ANDROID_ID=$(settings get secure android_id)
+AID=$(settings get secure android_id)
 SERIAL=$(getprop ro.serialno)
-MAC=$(cat /sys/class/net/wlan0/address 2>/dev/null || echo "02:00:00:00:00:00")
+MAC=$(cat /sys/class/net/wlan0/address 2>/dev/null || echo "02:00:00:44:55:07")
+IMEI=$(su -c "service call iphonesubinfo 1" | awk -F "'" '{print $2}' | sed 's/\.//g' | tr -d '\n' | cut -c1-15)
 
-# Ambil IMEI (Memerlukan Root)
-IMEI=$(su -c "service call iphonesubinfo 1 | awk -F \"'\" '{print \$2}' | sed 's/\.//g' | tr -d '\n'")
-
-echo "------------------------------------------"
-echo "Device     : $MODEL"
-echo "Brand      : $BRAND"
-echo "Board      : $BOARD"
-echo "Android ID : $ANDROID_ID"
-echo "Serial     : $SERIAL"
-echo "MAC        : $MAC"
-echo "IMEI       : $IMEI"
-echo "------------------------------------------"
+# Tampilan Table
+clear
+line
+printf "${CYAN}%-15s : ${GREEN}%s${NC}\n" "Device" "$MODEL"
+printf "${CYAN}%-15s : ${GREEN}%s${NC}\n" "Brand" "$BRAND"
+printf "${CYAN}%-15s : ${GREEN}%s${NC}\n" "Board" "$BOARD"
+printf "${CYAN}%-15s : ${GREEN}%s${NC}\n" "Android ID" "$AID"
+printf "${CYAN}%-15s : ${GREEN}%s${NC}\n" "Serial" "$SERIAL"
+printf "${CYAN}%-15s : ${GREEN}%s${NC}\n" "MAC" "$MAC"
+printf "${CYAN}%-15s : ${GREEN}%s${NC}\n" "IMEI" "$IMEI"
+line
