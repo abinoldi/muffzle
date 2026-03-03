@@ -1,33 +1,55 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
+# Ambil ukuran lebar terminal saat ini (Flexible)
+COLS=$(tput cols)
+# Tetapkan batas minimal lebar agar tabel tidak error jika layar terlalu kecil
+[ -z "$COLS" ] && COLS=50
+[ "$COLS" -lt 40 ] && COLS=40
+
+# Lebar kolom kiri (Nama info)
+KEY_LEN=12
+# Lebar kolom kanan (Value) menyesuaikan sisa lebar layar
+VAL_LEN=$((COLS - KEY_LEN - 7))
+
+# Fungsi untuk membuat garis pembatas tabel yang dinamis
+draw_line() {
+    local line1=$(printf "%${KEY_LEN}s" | tr ' ' "-")
+    local line2=$(printf "%${VAL_LEN}s" | tr ' ' "-")
+    echo "+-${line1}-+-${line2}-+"
+}
+
 # Warna
-CYAN='\033[0;36m'
-GREEN='\033[0;32m'
-NC='\033[0m' # No Color
+C='\033[0;36m' # Cyan
+G='\033[0;32m' # Green
+NC='\033[0m'   # No Color
 
-# Ambil lebar terminal (Flexible)
-WIDTH=$(tput cols)
-[ $WIDTH -gt 50 ] && WIDTH=50 # Batas maksimal biar gak terlalu lebar
+# Ambil Data (sambil menghapus karakter aneh \r dan \n yang bikin error)
+MODEL=$(getprop ro.product.model | tr -d '\r\n')
+BRAND=$(getprop ro.product.brand | tr -d '\r\n')
+BOARD=$(getprop ro.board.platform | tr -d '\r\n')
+AID=$(settings get secure android_id | tr -d '\r\n')
+SERIAL=$(getprop ro.serialno | tr -d '\r\n')
+MAC=$(cat /sys/class/net/wlan0/address 2>/dev/null | tr -d '\r\n')
+[ -z "$MAC" ] && MAC="02:00:00:00:00:00"
+IMEI=$(su -c "service call iphonesubinfo 1" 2>/dev/null | awk -F "'" '{print $2}' | sed 's/\.//g' | tr -d '\r\n' | cut -c1-15)
 
-line() { printf "${CYAN}%.s-${NC}" $(seq 1 $WIDTH); echo; }
+# Fungsi untuk mencetak baris tabel
+print_row() {
+    local key="$1"
+    local val="$2"
+    # Potong value jika terlalu panjang agar tidak merusak tabel
+    val="${val:0:$VAL_LEN}"
+    printf "| ${C}%-${KEY_LEN}s${NC} | ${G}%-${VAL_LEN}s${NC} |\n" "$key" "$val"
+}
 
-# Ambil Data (Simpan ke variabel agar rapi)
-MODEL=$(getprop ro.product.model)
-BRAND=$(getprop ro.product.brand)
-BOARD=$(getprop ro.board.platform)
-AID=$(settings get secure android_id)
-SERIAL=$(getprop ro.serialno)
-MAC=$(cat /sys/class/net/wlan0/address 2>/dev/null || echo "02:00:00:44:55:07")
-IMEI=$(su -c "service call iphonesubinfo 1" | awk -F "'" '{print $2}' | sed 's/\.//g' | tr -d '\n' | cut -c1-15)
-
-# Tampilan Table
+# Tampilkan Tabel
 clear
-line
-printf "${CYAN}%-15s : ${GREEN}%s${NC}\n" "Device" "$MODEL"
-printf "${CYAN}%-15s : ${GREEN}%s${NC}\n" "Brand" "$BRAND"
-printf "${CYAN}%-15s : ${GREEN}%s${NC}\n" "Board" "$BOARD"
-printf "${CYAN}%-15s : ${GREEN}%s${NC}\n" "Android ID" "$AID"
-printf "${CYAN}%-15s : ${GREEN}%s${NC}\n" "Serial" "$SERIAL"
-printf "${CYAN}%-15s : ${GREEN}%s${NC}\n" "MAC" "$MAC"
-printf "${CYAN}%-15s : ${GREEN}%s${NC}\n" "IMEI" "$IMEI"
-line
+draw_line
+print_row "Device" "$MODEL"
+print_row "Brand" "$BRAND"
+print_row "Board" "$BOARD"
+print_row "Android ID" "$AID"
+print_row "Serial" "$SERIAL"
+print_row "MAC" "$MAC"
+print_row "IMEI" "$IMEI"
+draw_line
