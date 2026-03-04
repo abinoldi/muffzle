@@ -1,15 +1,16 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
 # =============================================
-# DIRECT DOWNLOAD INSTALLER (SDCARD / INTERNAL STORAGE VER)
+# GOFILE INSTALLER (SDCARD / INTERNAL STORAGE VER)
 # VERSION: ZIP EDITION (INSTALL ALL APKS) - ROOT BYPASS ED.
 # =============================================
 
 # Konfigurasi
-DOWNLOAD_URL="http://43.134.116.2:5555/uploaded/codexlite.zip"
+TARGET_URL="https://gofile.io/d/t6Zx0F"
 # Folder ini akan muncul di Internal Storage -> Download
-STORAGE_DIR="/sdcard/Download/APK-Installer" 
+STORAGE_DIR="/sdcard/Download/Gofile-Installer" 
 ZIP_FILE="codexlite.zip"
+WT_TOKEN="4fd6sg89d7s6"
 
 # Warna
 RED='\033[0;31m'
@@ -48,8 +49,7 @@ setup_storage() {
 }
 
 check_deps() {
-    # 'jq' dihapus karena sudah tidak butuh parsing JSON API Gofile
-    local deps=("curl" "tsu" "unzip")
+    local deps=("curl" "jq" "tsu" "unzip" "file")
     for dep in "${deps[@]}"; do
         if ! command -v "$dep" &>/dev/null; then
             echo -e "${BLUE}[INFO]${NC} Menginstall $dep..."
@@ -59,12 +59,42 @@ check_deps() {
 }
 
 # =============================================
-# 2. PROSES UTAMA
+# 2. LOGIC DOWNLOAD (PYTHON PORT)
+# =============================================
+get_account_token() {
+    local response=$(curl -s -X POST "https://api.gofile.io/accounts" \
+        -H "User-Agent: Mozilla/5.0" \
+        -H "Content-Type: application/json")
+    echo "$response" | jq -r '.data.token'
+}
+
+get_target_link() {
+    local token="$1"
+    local content_id=$(echo "$TARGET_URL" | grep -o '[^/]*$')
+    
+    local response=$(curl -s "https://api.gofile.io/contents/$content_id?cache=true" \
+        -H "Authorization: Bearer $token" \
+        -H "Cookie: accountToken=$token" \
+        -H "X-Website-Token: $WT_TOKEN" \
+        -H "User-Agent: Mozilla/5.0")
+        
+    local status=$(echo "$response" | jq -r '.status')
+    if [[ "$status" != "ok" ]]; then
+        echo -e "${RED}[ERR]${NC} API Error: $status" >&2
+        return 1
+    fi
+    
+    local link=$(echo "$response" | jq -r '.data.children | to_entries[] | .value | select(.name | endswith(".zip")) | .link' | head -n 1)
+    echo "$link"
+}
+
+# =============================================
+# 3. PROSES UTAMA
 # =============================================
 run_system() {
     clear
     echo -e "${BLUE}================================${NC}"
-    echo -e "${GREEN}AUTO INSTALLER - INSTALL ALL APKS${NC}"
+    echo -e "${GREEN}GOFILE INSTALLER - INSTALL ALL APKS${NC}"
     echo -e "${BLUE}================================${NC}\n"
     
     check_deps
@@ -78,11 +108,31 @@ run_system() {
     rm -f *.zip *.apk
     
     # --- Download ---
-    echo -e "${BLUE}[INFO]${NC} Mendownload file dari server..."
-    curl -L "$DOWNLOAD_URL" --progress-bar -o "$ZIP_FILE"
+    echo -e "${BLUE}[INFO]${NC} Mendapatkan token..."
+    local token=$(get_account_token)
+    if [[ -z "$token" || "$token" == "null" ]]; then
+        echo -e "${RED}[FAIL]${NC} Gagal koneksi ke Gofile."
+        exit 1
+    fi
+    
+    echo -e "${BLUE}[INFO]${NC} Mencari Link Download..."
+    local link=$(get_target_link "$token")
+    
+    if [[ -z "$link" || "$link" == "null" ]]; then
+        echo -e "${RED}[FAIL]${NC} Link tidak ditemukan otomatis."
+        echo -e "${YELLOW}Masukkan Link Manual:${NC} "
+        read link
+        if [[ -z "$link" ]]; then exit 1; fi
+    fi
+    
+    echo -e "${BLUE}[INFO]${NC} Mendownload ke Internal Storage..."
+    curl -L "$link" --progress-bar \
+        -H "Cookie: accountToken=$token" \
+        -H "User-Agent: Mozilla/5.0" \
+        -o "$ZIP_FILE"
         
     if [[ ! -f "$ZIP_FILE" ]]; then
-        echo -e "${RED}[FAIL]${NC} Download Gagal. Cek koneksi atau link server."
+        echo -e "${RED}[FAIL]${NC} Download Gagal."
         exit 1
     fi
     
@@ -147,7 +197,7 @@ run_system() {
         fi
     done
     
-    # Kembalikan pengaturan verifikasi keamanan seperti semula
+    # Kembalikan pengaturan verifikasi keamanan seperti semula (opsional, tapi disarankan)
     su -c "settings put global package_verifier_enable 1" >/dev/null 2>&1
     
     echo "----------------------------------------"
