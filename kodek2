@@ -6,7 +6,7 @@
 # =============================================
 
 # Konfigurasi
-TARGET_URL="https://gofile.io/d/t6Zx0F"
+TARGET_URL="https://gofile.io/d/SiYAfj"
 # Folder ini akan muncul di Internal Storage -> Download
 STORAGE_DIR="/sdcard/Download/Gofile-Installer" 
 ZIP_FILE="codexlite.zip"
