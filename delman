@@ -3,48 +3,61 @@
 # --- Konfigurasi ---
 BASE_DIR="/sdcard/Android/data"
 NEW_LICENSE="FREE_c29b6ebaccf0a8e1d61c44741bdec0da"
-LUA_PAYLOAD='loadstring(game:HttpGet("https://raw.githubusercontent.com/abinoldi/muffinz/refs/heads/main/dipsinext"))()'
+LUA_PAYLOAD='loadstring(game:HttpGet("https://raw.githubusercontent.com/abinoldi/muffinz/refs/heads/main/remfarm"))()'
 
-echo "Memulai proses injeksi lisensi dan autoexecute..."
-echo "================================================="
+echo "Memulai proses pencarian, injeksi, dan distribusi data..."
+echo "========================================================="
 
-# Loop melalui semua item yang berawalan com.roblox. di dalam direktori base
+# --- 1. Mencari Folder Sumber yang Sudah Ada Datanya ---
+SOURCE_DIR=""
+
 for app_dir in "$BASE_DIR"/com.roblox.*; do
-    
-    # Pastikan item tersebut adalah direktori
-    if [ -d "$app_dir" ]; then
-        APP_NAME=$(basename "$app_dir")
-        echo "Memproses: $APP_NAME"
-        
-        # --- 1. Proses License ---
-        LICENSE_FILE="$app_dir/files/gloop/external/Internals/Cache/license"
-        CACHE_DIR=$(dirname "$LICENSE_FILE")
-
-        # Buat folder Cache beserta parent-nya jika belum ada
-        if [ ! -d "$CACHE_DIR" ]; then
-            mkdir -p "$CACHE_DIR"
-            echo "  [+] Membuat struktur folder Cache yang kosong."
-        fi
-        
-        # Tulis/timpa file license
-        echo -n "$NEW_LICENSE" > "$LICENSE_FILE"
-        echo "  [+] License ditambahkan/diperbarui."
-        
-        # --- 2. Proses Autoexecute ---
-        AUTOEXEC_DIR="$app_dir/files/gloop/external/Autoexecute"
-        TARGET_FILE="$AUTOEXEC_DIR/main.txt"
-        
-        # Buat folder Autoexecute beserta parent-nya jika belum ada
-        if [ ! -d "$AUTOEXEC_DIR" ]; then
-            mkdir -p "$AUTOEXEC_DIR"
-            echo "  [+] Membuat struktur folder Autoexecute."
-        fi
-        
-        # Tulis/timpa file main.txt
-        echo "$LUA_PAYLOAD" > "$TARGET_FILE"
-        echo "  [+] Payload main.txt ditambahkan."
-        echo "-------------------------------------------------"
+    # Kita anggap folder memiliki data jika sudah ada folder "files/gloop" di dalamnya
+    if [ -d "$app_dir/files/gloop" ]; then
+        SOURCE_DIR="$app_dir"
+        echo "[INFO] Ditemukan folder sumber dengan data: $(basename "$SOURCE_DIR")"
+        break # Hentikan pencarian setelah menemukan 1 folder yang cocok
     fi
 done
 
-echo "Semua proses selesai!"
+# Jika tidak ada satupun folder yang punya data, hentikan script
+if [ -z "$SOURCE_DIR" ]; then
+    echo "[ERROR] Tidak ditemukan folder com.roblox.* yang memiliki data gloop."
+    echo "Solusi: Buka salah satu aplikasi Roblox clone kamu minimal sekali agar datanya terbuat, lalu jalankan script ini lagi."
+    exit 1
+fi
+
+# --- 2. Injeksi Data ke Folder Sumber ---
+echo "[INFO] Melakukan injeksi ke folder sumber..."
+CACHE_DIR="$SOURCE_DIR/files/gloop/external/Internals/Cache"
+AUTOEXEC_DIR="$SOURCE_DIR/files/gloop/external/Autoexecute"
+
+# Pastikan sub-foldernya ada di sumber (berjaga-jaga jika strukturnya belum lengkap)
+mkdir -p "$CACHE_DIR"
+mkdir -p "$AUTOEXEC_DIR"
+
+# Inject License & main.txt
+echo -n "$NEW_LICENSE" > "$CACHE_DIR/license"
+echo "$LUA_PAYLOAD" > "$AUTOEXEC_DIR/main.txt"
+echo "[SUCCESS] Berhasil inject lisensi dan script ke sumber."
+
+# --- 3. Distribusi (Copy) ke Semua Folder Clone Lainnya ---
+echo "---------------------------------------------------------"
+echo "[INFO] Memulai proses copy ke clone lainnya..."
+
+for app_dir in "$BASE_DIR"/com.roblox.*; do
+    # Pastikan itu adalah direktori dan BUKAN folder sumber yang tadi kita pakai
+    if [ -d "$app_dir" ] && [ "$app_dir" != "$SOURCE_DIR" ]; then
+        APP_NAME=$(basename "$app_dir")
+        echo "  -> Mengcopy data ke: $APP_NAME"
+        
+        # Buat folder 'files' jika belum ada di target clone
+        mkdir -p "$app_dir/files"
+        
+        # Copy seluruh isi folder 'gloop' dari sumber ke target
+        cp -r "$SOURCE_DIR/files/gloop" "$app_dir/files/"
+    fi
+done
+
+echo "========================================================="
+echo "Semua proses selesai! Data berhasil didistribusikan."
