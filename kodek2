@@ -1,16 +1,14 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
 # =============================================
-# GOFILE INSTALLER (SDCARD / INTERNAL STORAGE VER)
+# DIRECT HTTP INSTALLER (SDCARD / INTERNAL STORAGE VER)
 # VERSION: ZIP EDITION (INSTALL ALL APKS) - ROOT BYPASS ED.
 # =============================================
 
-# Konfigurasi
-TARGET_URL="https://gofile.io/d/SiYAfj"
-# Folder ini akan muncul di Internal Storage -> Download
-STORAGE_DIR="/sdcard/Download/Gofile-Installer" 
+# Konfigurasi Baru (Direct Link)
+TARGET_URL="http://43.134.116.2:5555/uploaded/codexlite.zip"
+STORAGE_DIR="/sdcard/Download/APKHasil" 
 ZIP_FILE="codexlite.zip"
-WT_TOKEN="4fd6sg89d7s6"
 
 # Warna
 RED='\033[0;31m'
@@ -20,7 +18,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # =============================================
-# 1. CEK IZIN PENYIMPANAN (PENTING!)
+# 1. CEK IZIN PENYIMPANAN
 # =============================================
 setup_storage() {
     echo -e "${BLUE}[INFO]${NC} Memeriksa akses penyimpanan..."
@@ -29,17 +27,10 @@ setup_storage() {
         echo -e "${GREEN}[OK]${NC} Akses penyimpanan diizinkan."
     else
         echo -e "${RED}[!]${NC} Termux belum punya izin akses memori!"
-        echo -e "${YELLOW}Jendela popup akan muncul, pilih 'IZINKAN' / 'ALLOW'${NC}"
         termux-setup-storage
         sleep 5
-        
         echo -e "${YELLOW}Tekan Enter jika sudah mengizinkan...${NC}"
         read temp
-        
-        if ! ls /sdcard >/dev/null 2>&1; then
-            echo -e "${RED}[ERROR]${NC} Gagal akses memori. Script tidak bisa lanjut."
-            exit 1
-        fi
     fi
     
     if [[ ! -d "$STORAGE_DIR" ]]; then
@@ -49,7 +40,7 @@ setup_storage() {
 }
 
 check_deps() {
-    local deps=("curl" "jq" "tsu" "unzip" "file")
+    local deps=("curl" "unzip" "tsu")
     for dep in "${deps[@]}"; do
         if ! command -v "$dep" &>/dev/null; then
             echo -e "${BLUE}[INFO]${NC} Menginstall $dep..."
@@ -59,42 +50,12 @@ check_deps() {
 }
 
 # =============================================
-# 2. LOGIC DOWNLOAD (PYTHON PORT)
-# =============================================
-get_account_token() {
-    local response=$(curl -s -X POST "https://api.gofile.io/accounts" \
-        -H "User-Agent: Mozilla/5.0" \
-        -H "Content-Type: application/json")
-    echo "$response" | jq -r '.data.token'
-}
-
-get_target_link() {
-    local token="$1"
-    local content_id=$(echo "$TARGET_URL" | grep -o '[^/]*$')
-    
-    local response=$(curl -s "https://api.gofile.io/contents/$content_id?cache=true" \
-        -H "Authorization: Bearer $token" \
-        -H "Cookie: accountToken=$token" \
-        -H "X-Website-Token: $WT_TOKEN" \
-        -H "User-Agent: Mozilla/5.0")
-        
-    local status=$(echo "$response" | jq -r '.status')
-    if [[ "$status" != "ok" ]]; then
-        echo -e "${RED}[ERR]${NC} API Error: $status" >&2
-        return 1
-    fi
-    
-    local link=$(echo "$response" | jq -r '.data.children | to_entries[] | .value | select(.name | endswith(".zip")) | .link' | head -n 1)
-    echo "$link"
-}
-
-# =============================================
-# 3. PROSES UTAMA
+# 2. PROSES UTAMA
 # =============================================
 run_system() {
     clear
     echo -e "${BLUE}================================${NC}"
-    echo -e "${GREEN}GOFILE INSTALLER - INSTALL ALL APKS${NC}"
+    echo -e "${GREEN}DIRECT INSTALLER - ALL APKS EDITION${NC}"
     echo -e "${BLUE}================================${NC}\n"
     
     check_deps
@@ -102,94 +63,58 @@ run_system() {
     
     cd "$STORAGE_DIR" || exit
     
-    echo -e "${BLUE}[INFO]${NC} Lokasi Kerja: $STORAGE_DIR"
-    
-    # Hapus file lama biar bersih
+    # Bersihkan file lama
     rm -f *.zip *.apk
     
-    # --- Download ---
-    echo -e "${BLUE}[INFO]${NC} Mendapatkan token..."
-    local token=$(get_account_token)
-    if [[ -z "$token" || "$token" == "null" ]]; then
-        echo -e "${RED}[FAIL]${NC} Gagal koneksi ke Gofile."
-        exit 1
-    fi
+    # --- Download Langsung ---
+    echo -e "${BLUE}[INFO]${NC} Mendownload file dari server..."
+    echo -e "${YELLOW}URL: $TARGET_URL${NC}"
     
-    echo -e "${BLUE}[INFO]${NC} Mencari Link Download..."
-    local link=$(get_target_link "$token")
-    
-    if [[ -z "$link" || "$link" == "null" ]]; then
-        echo -e "${RED}[FAIL]${NC} Link tidak ditemukan otomatis."
-        echo -e "${YELLOW}Masukkan Link Manual:${NC} "
-        read link
-        if [[ -z "$link" ]]; then exit 1; fi
-    fi
-    
-    echo -e "${BLUE}[INFO]${NC} Mendownload ke Internal Storage..."
-    curl -L "$link" --progress-bar \
-        -H "Cookie: accountToken=$token" \
-        -H "User-Agent: Mozilla/5.0" \
-        -o "$ZIP_FILE"
+    curl -L "$TARGET_URL" --progress-bar -o "$ZIP_FILE"
         
-    if [[ ! -f "$ZIP_FILE" ]]; then
-        echo -e "${RED}[FAIL]${NC} Download Gagal."
+    if [[ ! -f "$ZIP_FILE" || ! -s "$ZIP_FILE" ]]; then
+        echo -e "${RED}[FAIL]${NC} Download Gagal atau file kosong."
         exit 1
     fi
     
     # --- Extract ZIP ---
     echo -e "${BLUE}[INFO]${NC} Mengekstrak file ZIP..."
-    
-    if unzip -t "$ZIP_FILE" >/dev/null 2>&1; then
-        unzip -o "$ZIP_FILE" -d ./ >/dev/null 2>&1
-        if [[ $? -eq 0 ]]; then
-            echo -e "${GREEN}[OK]${NC} Ekstraksi ZIP berhasil."
-        else
-            echo -e "${RED}[FAIL]${NC} Gagal mengekstrak ZIP."
-            exit 1
-        fi
+    if unzip -o "$ZIP_FILE" -d ./ >/dev/null 2>&1; then
+        echo -e "${GREEN}[OK]${NC} Ekstraksi berhasil."
     else
-        echo -e "${RED}[FAIL]${NC} File ZIP corrupt atau tidak valid."
+        echo -e "${RED}[FAIL]${NC} Gagal ekstrak. File mungkin bukan ZIP atau corrupt."
         exit 1
     fi
     
     # --- Cari semua APK ---
-    echo -e "${BLUE}[INFO]${NC} Mencari file APK..."
     local apks=($(ls *.apk 2>/dev/null | sort -V))
     local total_apks=${#apks[@]}
     
     if [[ $total_apks -eq 0 ]]; then
-        echo -e "${RED}[FAIL]${NC} Tidak ada APK ditemukan di dalam file ZIP tersebut."
+        echo -e "${RED}[FAIL]${NC} Tidak ada APK ditemukan di dalam ZIP."
         exit 1
     fi
     
-    echo -e "${GREEN}[OK]${NC} Ditemukan ${total_apks} APK:"
-    for apk in "${apks[@]}"; do
-        echo "   - $apk"
-    done
-    echo ""
+    echo -e "${GREEN}[OK]${NC} Ditemukan ${total_apks} APK.\n"
     
-    # --- Install SEMUA APK ---
-    echo -e "${YELLOW}[!]${NC} Memulai instalasi via Root (Bypass Mode)..."
-    
+    # --- Install via Root ---
     if ! command -v su &>/dev/null; then
-        echo -e "${RED}[FAIL]${NC} Akses Root (su) tidak tersedia."
+        echo -e "${RED}[FAIL]${NC} HP TIDAK ROOT. Tidak bisa install otomatis."
         exit 0
     fi
     
-    # Bypass Google Play Protect / App Verifier sementara
-    su -c "settings put global verifier_verify_adb_installs 0" >/dev/null 2>&1
-    su -c "settings put global package_verifier_enable 0" >/dev/null 2>&1
+    echo -e "${YELLOW}[!] Memulai instalasi senyap...${NC}"
     
-    echo "----------------------------------------"
+    # Bypass Verifier
+    su -c "settings put global verifier_verify_adb_installs 0" >/dev/null 2>&1
+    
     local success=0
     local failed=0
     
     for apk in "${apks[@]}"; do
         echo -n "📦 Installing $apk... "
-        
-        # Eksekusi instalasi senyap dengan flag -r -t -g
         if su -c "pm install -r -t -g \"$STORAGE_DIR/$apk\"" >/dev/null 2>&1; then
-            echo -e "${GREEN}✓ BERHASIL${NC}"
+            echo -e "${GREEN}✓ OK${NC}"
             ((success++))
         else
             echo -e "${RED}✗ GAGAL${NC}"
@@ -197,16 +122,9 @@ run_system() {
         fi
     done
     
-    # Kembalikan pengaturan verifikasi keamanan seperti semula (opsional, tapi disarankan)
-    su -c "settings put global package_verifier_enable 1" >/dev/null 2>&1
-    
     echo "----------------------------------------"
-    echo -e "${GREEN}✅ Installasi selesai!${NC}"
-    echo -e "   Berhasil: ${GREEN}${success}${NC} APK"
-    echo -e "   Gagal: ${RED}${failed}${NC} APK"
-    echo ""
-    echo -e "${BLUE}[INFO]${NC} File ZIP dan APK tersimpan di:"
-    echo -e "   ${YELLOW}$STORAGE_DIR${NC}"
+    echo -e "${GREEN}✅ Selesai! Berhasil: $success, Gagal: $failed${NC}"
+    echo -e "${BLUE}[INFO]${NC} File ada di: ${YELLOW}$STORAGE_DIR${NC}"
 }
 
 run_system
