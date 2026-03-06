@@ -63,8 +63,10 @@ run_system() {
     
     cd "$STORAGE_DIR" || exit
     
-    # Bersihkan file lama
-    rm -f *.zip *.apk
+    # --- Bersihkan file lama ---
+    echo -e "${BLUE}[INFO]${NC} Menghapus file APK dan ZIP lama di folder..."
+    rm -rf "$STORAGE_DIR"/*
+    echo -e "${GREEN}[OK]${NC} Folder sudah dibersihkan."
     
     # --- Download Langsung ---
     echo -e "${BLUE}[INFO]${NC} Mendownload file dari server..."
@@ -122,7 +124,8 @@ run_system() {
         fi
     done
     
-    echo "----------------------------------------"
+    # Opsional: Hapus APK setelah selesai diinstall agar memori tidak penuh
+    # rm -rf "$STORAGE_DIR"/* echo "----------------------------------------"
     echo -e "${GREEN}✅ Selesai! Berhasil: $success, Gagal: $failed${NC}"
     echo -e "${BLUE}[INFO]${NC} File ada di: ${YELLOW}$STORAGE_DIR${NC}"
 }
