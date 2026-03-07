@@ -4,9 +4,9 @@ const readline = require('readline');
 
 // --- KONFIGURASI ---
 const GHOSTBIN_URL = "https://ghostbin.axel.org/paste/nk4fh/raw";
-const PACKAGE_NAME = "com.roblox.client"; // Pastikan ini benar (di script asli tertulis clienb)
+const PACKAGE_NAME = "com.roblox.clienb"; // Sesuai dengan screenshot kamu
 const PLACE_ID = "121864768012064";
-const CHECK_INTERVAL = 60000; // 1 menit (ms)
+const CHECK_INTERVAL = 60000; // 1 menit (ms) untuk monitoring
 const STABILIZATION_DELAY = 45000; // 45 detik untuk loading awal
 
 const rl = readline.createInterface({
@@ -88,7 +88,6 @@ async function start() {
     console.log("   🚀 AUTO REJOIN ROBLOX SCRIPT 🚀   ");
     console.log("========================================");
 
-    // 1. Minta Input Cookie
     const COOKIE = await askCookie();
     rl.close();
 
@@ -97,14 +96,11 @@ async function start() {
         process.exit(1);
     }
 
-    // 2. Autentikasi User
     const userData = await getAuthenticatedUser(COOKIE);
-    if (!userData) {
-        process.exit(1);
-    }
+    if (!userData) process.exit(1);
+    
     console.log(`\n✅ Berhasil Login: ${userData.displayName} (@${userData.name}) - ID: ${userData.id}`);
 
-    // 3. Ambil LinkCodes dari Ghostbin
     let linkCodes = [];
     try {
         console.log("⏳ Mengambil link codes dari Ghostbin...");
@@ -116,65 +112,102 @@ async function start() {
         process.exit(1);
     }
 
-    // 4. Proses Loop Setiap Link Code
     for (let i = 0; i < linkCodes.length; i++) {
         const currentCode = linkCodes[i];
         console.log(`\n========================================`);
         console.log(`[${i + 1}/${linkCodes.length}] Memproses Link Code: ${currentCode}`);
         
-        // [PERBAIKAN 1]: Force close sebelum launch package
         console.log(`🧹 Membersihkan (Force Close) ${PACKAGE_NAME} sebelum launch...`);
         await runCommand(`su -c "am force-stop ${PACKAGE_NAME}"`);
-        await sleep(3000); // Jeda 3 detik agar aplikasi benar-benar tertutup bersih
+        await sleep(3000); 
 
-        // Buka Roblox
         const launchCmd = `su -c "am start -n ${PACKAGE_NAME}/com.roblox.client.ActivityProtocolLaunch -a android.intent.action.VIEW -d 'roblox://placeID=${PLACE_ID}&linkCode=${currentCode}'"`;
         console.log("▶️ Menjalankan aplikasi Roblox...");
         await runCommand(launchCmd);
         
-        // Tunggu game loading (Stabilization period)
-        console.log(`⏳ Menunggu ${STABILIZATION_DELAY / 1000} detik agar game terbuka penuh...`);
+        console.log(`⏳ Menunggu ${STABILIZATION_DELAY / 1000} detik loading awal game...`);
         await sleep(STABILIZATION_DELAY);
 
-        // 5. Monitoring Loop per Menit
-        let isOnline = true;
-        while (isOnline) {
+        // --- FASE RETRY MASUK GAME ---
+        let inGame = false;
+        let retries = 0;
+        const MAX_RETRIES = 5; // Maksimal 5 kali coba cek tambahan
+        const RETRY_INTERVAL = 15000; // 15 detik tiap kali ngecek
+
+        while (retries < MAX_RETRIES) {
+            const csrf = await getCsrfToken(COOKIE);
+            if (csrf) {
+                const presenceData = await checkPresence(userData.id, COOKIE, csrf);
+                const statusMap = { 0: 'Offline', 1: 'Online', 2: 'In-Game', 3: 'Studio' };
+                
+                if (presenceData) {
+                    const statusType = presenceData.userPresenceType;
+                    console.log(`[${new Date().toLocaleTimeString()}] Status: ${statusMap[statusType]} | Lokasi: ${presenceData.lastLocation || 'N/A'}`);
+
+                    if (statusType === 2) {
+                        console.log("✅ Berhasil masuk In-Game!");
+                        inGame = true;
+                        break; // Sudah masuk game, hentikan retry
+                    }
+                }
+            }
+
+            retries++;
+            if (retries < MAX_RETRIES && !inGame) {
+                console.log(`🔄 Masih loading/belum In-Game. Cek lagi dalam ${RETRY_INTERVAL / 1000} detik... (Percobaan ${retries}/${MAX_RETRIES})`);
+                await sleep(RETRY_INTERVAL);
+            }
+        }
+
+        // Jika setelah retry masih gagal masuk
+        if (!inGame) {
+            console.log("🔴 Gagal masuk game setelah batas percobaan! Melewati link code ini.");
+            console.log(`🛑 Melakukan Force Close pada ${PACKAGE_NAME}...`);
+            await runCommand(`su -c "am force-stop ${PACKAGE_NAME}"`);
+            
+            if (i < linkCodes.length - 1) {
+                console.log("➡️ Bersiap pindah ke link code selanjutnya...");
+                await sleep(5000);
+            }
+            continue; // Lanjut ke link code berikutnya di dalam loop 'for'
+        }
+
+        // --- FASE MONITORING IN-GAME ---
+        console.log("👀 Memulai monitoring In-Game (cek setiap 1 menit)...");
+        let isPlaying = true;
+        
+        while (isPlaying) {
+            await sleep(CHECK_INTERVAL); // Tunggu 1 menit dulu sebelum cek lagi
+
             const csrf = await getCsrfToken(COOKIE);
             if (!csrf) {
                 console.log("⚠️ Gagal mendapatkan CSRF Token, mencoba lagi menit depan...");
-                await sleep(CHECK_INTERVAL);
                 continue;
             }
 
             const presenceData = await checkPresence(userData.id, COOKIE, csrf);
-            const statusMap = { 0: 'Offline', 1: 'Online', 2: 'In-Game', 3: 'Studio' };
-            
             if (presenceData) {
                 const statusType = presenceData.userPresenceType;
-                console.log(`[${new Date().toLocaleTimeString()}] Status: ${statusMap[statusType]} | Lokasi: ${presenceData.lastLocation || 'N/A'}`);
-
-                // [PERBAIKAN 2]: Ubah kondisi agar keluar jika statusnya BUKAN "In-Game" (2)
+                
                 if (statusType !== 2) {
-                    console.log("🔴 Akun terdeteksi TIDAK IN-GAME!");
-                    isOnline = false; // Keluar dari loop monitoring
+                    console.log(`[${new Date().toLocaleTimeString()}] 🔴 Akun terdeteksi keluar dari In-Game!`);
+                    isPlaying = false; // Memutus loop monitoring
+                } else {
+                    console.log(`[${new Date().toLocaleTimeString()}] ✅ Masih In-Game. Bermain aman.`);
                 }
             } else {
-                console.log("🔴 Data presence kosong, mengasumsikan OFFLINE / TIDAK IN-GAME.");
-                isOnline = false;
-            }
-
-            if (isOnline) {
-                await sleep(CHECK_INTERVAL);
+                console.log("🔴 Data presence kosong, mengasumsikan terputus/keluar.");
+                isPlaying = false;
             }
         }
 
-        // 6. Force Close setelah keluar dari In-Game
+        // Force Close setelah keluar dari In-Game
         console.log(`🛑 Melakukan Force Close pada ${PACKAGE_NAME}...`);
         await runCommand(`su -c "am force-stop ${PACKAGE_NAME}"`);
 
         // Cek apakah ini link terakhir
         if (i === linkCodes.length - 1) {
-            console.log("\n🏁 Semua link code sudah diproses. Script selesai dan dihentikan.");
+            console.log("\n🏁 Semua link code sudah diproses. Script selesai.");
             process.exit(0);
         } else {
             console.log("➡️ Bersiap pindah ke link code selanjutnya...");
@@ -183,5 +216,4 @@ async function start() {
     }
 }
 
-// Jalankan Script
 start();
