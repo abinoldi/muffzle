@@ -4,7 +4,7 @@ const readline = require('readline');
 
 // --- KONFIGURASI ---
 const GHOSTBIN_URL = "https://ghostbin.axel.org/paste/nk4fh/raw";
-const PACKAGE_NAME = "com.roblox.clienb";
+const PACKAGE_NAME = "com.roblox.client"; // Pastikan ini benar (di script asli tertulis clienb)
 const PLACE_ID = "121864768012064";
 const CHECK_INTERVAL = 60000; // 1 menit (ms)
 const STABILIZATION_DELAY = 45000; // 45 detik untuk loading awal
@@ -90,7 +90,7 @@ async function start() {
 
     // 1. Minta Input Cookie
     const COOKIE = await askCookie();
-    rl.close(); // Tutup interface input setelah dapat cookie
+    rl.close();
 
     if (!COOKIE || COOKIE.length < 50) {
         console.log("❌ Input cookie tidak valid! Script dihentikan.");
@@ -122,6 +122,11 @@ async function start() {
         console.log(`\n========================================`);
         console.log(`[${i + 1}/${linkCodes.length}] Memproses Link Code: ${currentCode}`);
         
+        // [PERBAIKAN 1]: Force close sebelum launch package
+        console.log(`🧹 Membersihkan (Force Close) ${PACKAGE_NAME} sebelum launch...`);
+        await runCommand(`su -c "am force-stop ${PACKAGE_NAME}"`);
+        await sleep(3000); // Jeda 3 detik agar aplikasi benar-benar tertutup bersih
+
         // Buka Roblox
         const launchCmd = `su -c "am start -n ${PACKAGE_NAME}/com.roblox.client.ActivityProtocolLaunch -a android.intent.action.VIEW -d 'roblox://placeID=${PLACE_ID}&linkCode=${currentCode}'"`;
         console.log("▶️ Menjalankan aplikasi Roblox...");
@@ -148,23 +153,22 @@ async function start() {
                 const statusType = presenceData.userPresenceType;
                 console.log(`[${new Date().toLocaleTimeString()}] Status: ${statusMap[statusType]} | Lokasi: ${presenceData.lastLocation || 'N/A'}`);
 
-                // Jika status Offline (0)
-                if (statusType === 0) {
-                    console.log("🔴 Akun terdeteksi OFFLINE!");
+                // [PERBAIKAN 2]: Ubah kondisi agar keluar jika statusnya BUKAN "In-Game" (2)
+                if (statusType !== 2) {
+                    console.log("🔴 Akun terdeteksi TIDAK IN-GAME!");
                     isOnline = false; // Keluar dari loop monitoring
                 }
             } else {
-                // Jika gagal cek, asumsikan offline untuk aman, atau tetap tunggu (di sini diasumsikan offline agar tidak stuck)
-                console.log("🔴 Data presence kosong, mengasumsikan OFFLINE.");
+                console.log("🔴 Data presence kosong, mengasumsikan OFFLINE / TIDAK IN-GAME.");
                 isOnline = false;
             }
 
             if (isOnline) {
-                await sleep(CHECK_INTERVAL); // Tunggu 1 menit sebelum cek lagi
+                await sleep(CHECK_INTERVAL);
             }
         }
 
-        // 6. Force Close setelah Offline
+        // 6. Force Close setelah keluar dari In-Game
         console.log(`🛑 Melakukan Force Close pada ${PACKAGE_NAME}...`);
         await runCommand(`su -c "am force-stop ${PACKAGE_NAME}"`);
 
