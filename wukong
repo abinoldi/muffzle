@@ -4,7 +4,7 @@
 -- ======================================================
 
 local lastTradeTime = tick() -- Mencatat waktu awal saat script dijalankan
-local IDLE_LIMIT = 300 -- Batas waktu 5 menit (300 detik), diperbaiki dari 100
+local IDLE_LIMIT = 120 -- Batas waktu 5 menit (300 detik), diperbaiki dari 100
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
