@@ -11,7 +11,7 @@ const MSRV_URL = "https://ghostbin.axel.org/paste/nk4fh/raw";
 const PLACE_ID = "121864768012064";
 
 // --- SOLVER CONFIGURATION ---
-const SOLVER_API_URL = "http://64.23.246.253:3000/solve";
+const SOLVER_API_URL = "http://134.199.219.230:3000/solve";
 const YES_KEY = "f7a1a420f1ae90ca6c9d4d71437262edbd0ea31237995";
 
 // STATUS MONITORING
