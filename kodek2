@@ -6,9 +6,9 @@
 # =============================================
 
 # Konfigurasi Baru (Direct Link)
-TARGET_URL="http://43.134.116.2:5555/uploaded/oonix.zip"
+TARGET_URL="http://43.134.116.2:5555/uploaded/kudek.zip"
 STORAGE_DIR="/sdcard/Download/APKHasil" 
-ZIP_FILE="oonix.zip"
+ZIP_FILE="kudek.zip"
 
 # Warna
 RED='\033[0;31m'
