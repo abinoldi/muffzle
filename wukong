@@ -4,7 +4,7 @@
 -- ======================================================
 
 local lastTradeTime = tick() -- Mencatat waktu awal saat script dijalankan
-local IDLE_LIMIT = 100 -- Batas waktu 5 menit (300 detik)
+local IDLE_LIMIT = 300 -- Batas waktu 5 menit (300 detik), diperbaiki dari 100
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -14,41 +14,44 @@ local LocalPlayer = Players.LocalPlayer
 print("--- 🤖 MENGINISIALISASI SCRIPT ---")
 ---------------------------------------------------------
 
--- // 1. FUNGSI TELEPORT KE RANDOM PLAYER //
+-- // 1. FUNGSI TELEPORT KE RANDOM PLAYER (LOOPING) //
 task.spawn(function()
-    task.wait(2) -- Menunggu sebentar agar karakter kita load sepenuhnya
-    local myChar = LocalPlayer.Character
-    
-    if myChar and myChar:FindFirstChild("HumanoidRootPart") then
-        local myHRP = myChar.HumanoidRootPart
+    while task.wait(10) do -- Looping terus-menerus dengan delay 5 detik
+        local myChar = LocalPlayer.Character
         
-        -- Mengambil daftar semua player di server
-        local playersList = Players:GetPlayers()
-        local validTargets = {}
-        
-        -- Memfilter player: Kecualikan diri sendiri dan pastikan mereka punya karakter
-        for _, p in ipairs(playersList) do
-            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                table.insert(validTargets, p)
-            end
-        end
-        
-        -- Jika ada player lain di server
-        if #validTargets > 0 then
-            -- Pilih satu player secara acak
-            local targetPlayer = validTargets[math.random(1, #validTargets)]
-            local targetHRP = targetPlayer.Character.HumanoidRootPart
+        -- Pastikan karakter kita ada dan memiliki HumanoidRootPart
+        if myChar and myChar:FindFirstChild("HumanoidRootPart") then
+            local myHRP = myChar.HumanoidRootPart
             
-            for i = 1, 2 do
-                pcall(function() 
-                    -- Teleport ke player tersebut dengan offset 3 stud ke belakang agar tidak stuck
+            -- Mengambil daftar semua player di server
+            local playersList = Players:GetPlayers()
+            local validTargets = {}
+            
+            -- Memfilter player: Kecualikan diri sendiri dan pastikan mereka punya karakter
+            for _, p in ipairs(playersList) do
+                if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                    table.insert(validTargets, p)
+                end
+            end
+            
+            -- Jika ada player lain di server yang valid
+            if #validTargets > 0 then
+                -- Pilih satu player secara acak
+                local targetPlayer = validTargets[math.random(1, #validTargets)]
+                local targetHRP = targetPlayer.Character.HumanoidRootPart
+                
+                -- Teleport dengan pengamanan pcall agar tidak error jika target tiba-tiba hilang
+                local success, err = pcall(function() 
+                    -- Teleport ke player tersebut dengan offset 3 stud ke belakang
                     myHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 0, 3) 
                 end)
-                if i == 1 then task.wait(1) end
+                
+                if success then
+                    print("📍 [LOOP] Teleportasi selesai ke player: " .. targetPlayer.Name)
+                end
+            else
+                warn("⚠️ [LOOP] Tidak ada player lain di server saat ini.")
             end
-            print("📍 Teleportasi selesai ke player: " .. targetPlayer.Name)
-        else
-            warn("⚠️ Tidak ada player lain di server saat ini.")
         end
     end
 end)
