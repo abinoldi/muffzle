@@ -6,6 +6,11 @@ const readline = require("readline");
 const os = require("os");
 const axios = require("axios"); // Pastikan axios sudah di require
 
+const axiosInstance = axios.create({
+    httpAgent: new http.Agent({ keepAlive: true }),
+    httpsAgent: new https.Agent({ keepAlive: true }),
+});
+
 // --- CONFIGURATION ---
 const MSRV_URL = "https://ghostbin.axel.org/paste/nk4fh/raw";
 const PLACE_ID = "121864768012064";
@@ -545,15 +550,20 @@ async function runSolver(fullCookie, accPkg) {
         accountStates[accPkg].serverStatus = "✅ Solver Passed";
         return true;
     } catch (error) {
-        if (error.response) {
-            accountStates[accPkg].serverStatus = "❌ Solver API Err";
-        } else if (error.code === 'ECONNABORTED') {
-            accountStates[accPkg].serverStatus = "⚠️ Solver Timeout";
-        } else {
-            accountStates[accPkg].serverStatus = "❌ Solver Offline";
-        }
-        return false;
-    }
+      // Log ini untuk debugging pribadi
+      console.error(`Acc: ${accPkg} | Error: ${error.message}`); 
+  
+      if (error.response) {
+          // Server menjawab dengan status code (misal 500, 502, 504)
+          accountStates[accPkg].serverStatus = `❌ Server Error (${error.response.status})`;
+      } else if (error.request) {
+          // Request dikirim tapi tidak ada jawaban sama sekali
+          accountStates[accPkg].serverStatus = "⚠️ No Response/Timeout";
+      } else {
+          accountStates[accPkg].serverStatus = "❌ Setup Error";
+      }
+      return false;
+  }
 }
 
 async function main() {
