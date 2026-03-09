@@ -2,12 +2,12 @@ const axios = require('axios');
 const { exec } = require('child_process');
 const readline = require('readline');
 
-// --- KONFIGURASI ---
+// --- KONFIGURASI BARU ---
 const GHOSTBIN_URL = "https://ghostbin.axel.org/paste/nk4fh/raw";
-const PACKAGE_NAME = "com.roblox.clienb"; // Sesuai dengan package kamu
+const PACKAGE_NAME = "com.roblox.clienb"; 
 const PLACE_ID = "121864768012064";
 const CHECK_INTERVAL = 60000; // 1 menit (ms) untuk monitoring
-const STABILIZATION_DELAY = 45000; // 45 detik untuk loading awal
+const STABILIZATION_DELAY = 45000; // 45 detik untuk loading
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -117,25 +117,21 @@ async function start() {
         console.log(`\n========================================`);
         console.log(`[${i + 1}/${linkCodes.length}] Memproses Link Code: ${currentCode}`);
         
-        // --- FASE RETRY BUKA APLIKASI ---
+        // --- FASE RETRY BUKA APLIKASI (TANPA FORCE CLOSE) ---
         let inGame = false;
         let retries = 0;
-        const MAX_RETRIES = 3; // Saya set 3 kali reopen agar tidak terlalu lama membuang waktu
+        const MAX_RETRIES = 3; 
 
         while (retries < MAX_RETRIES && !inGame) {
             if (retries > 0) {
-                console.log(`\n🔄 Mengulang peluncuran... (Percobaan ${retries + 1}/${MAX_RETRIES})`);
+                console.log(`\n🔄 Mengirim ulang perintah join... (Percobaan ${retries + 1}/${MAX_RETRIES})`);
             }
 
-            console.log(`🧹 Membersihkan (Force Close) ${PACKAGE_NAME}...`);
-            await runCommand(`su -c "am force-stop ${PACKAGE_NAME}"`);
-            await sleep(3000); // Jeda agar memori HP lega setelah force close
-
             const launchCmd = `su -c "am start -n ${PACKAGE_NAME}/com.roblox.client.ActivityProtocolLaunch -a android.intent.action.VIEW -d 'roblox://placeID=${PLACE_ID}&linkCode=${currentCode}'"`;
-            console.log("▶️ Menjalankan aplikasi Roblox...");
+            console.log("▶️ Memanggil aplikasi Roblox dengan Link Code...");
             await runCommand(launchCmd);
             
-            console.log(`⏳ Menunggu ${STABILIZATION_DELAY / 1000} detik loading awal game...`);
+            console.log(`⏳ Menunggu ${STABILIZATION_DELAY / 1000} detik loading game...`);
             await sleep(STABILIZATION_DELAY);
 
             // Cek status setelah loading
@@ -164,17 +160,15 @@ async function start() {
             }
         }
 
-        // Jika setelah 3 kali force close + reopen tetap gagal masuk
+        // Jika gagal masuk setelah di-spam intent
         if (!inGame) {
-            console.log("🔴 Gagal masuk game setelah batas reopen! Melewati link code ini.");
-            console.log(`🛑 Melakukan Force Close pada ${PACKAGE_NAME} untuk terakhir kali...`);
-            await runCommand(`su -c "am force-stop ${PACKAGE_NAME}"`);
+            console.log("🔴 Gagal masuk game setelah batas percobaan! Melewati link code ini.");
             
             if (i < linkCodes.length - 1) {
-                console.log("➡️ Bersiap pindah ke link code selanjutnya...");
+                console.log("➡️ Bersiap memanggil link code selanjutnya...");
                 await sleep(5000);
             }
-            continue; // Langsung lompati ke link code berikutnya
+            continue; 
         }
 
         // --- FASE MONITORING IN-GAME ---
@@ -203,16 +197,12 @@ async function start() {
             }
         }
 
-        // Force Close setelah permainan selesai / disconnect
-        console.log(`🛑 Melakukan Force Close pada ${PACKAGE_NAME}...`);
-        await runCommand(`su -c "am force-stop ${PACKAGE_NAME}"`);
-
-        // Transisi ke link berikutnya
+        // Transisi ke link berikutnya tanpa Force Close
         if (i === linkCodes.length - 1) {
             console.log("\n🏁 Semua link code sudah diproses. Script selesai.");
             process.exit(0);
         } else {
-            console.log("➡️ Bersiap pindah ke link code selanjutnya...");
+            console.log("➡️ Bersiap memanggil link code selanjutnya...");
             await sleep(5000);
         }
     }
