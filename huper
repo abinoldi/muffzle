@@ -38,6 +38,14 @@ function runCommand(cmd) {
     });
 }
 
+async function forceCloseApp() {
+    console.log("🛑 Memaksa menutup aplikasi Roblox...");
+    const forceCloseCmd = `su -c "am force-stop ${PACKAGE_NAME}"`;
+    await runCommand(forceCloseCmd);
+    await sleep(3000); // Memberi waktu untuk force close
+    console.log("✅ Aplikasi Roblox telah ditutup.");
+}
+
 async function getAuthenticatedUser(cookie) {
     try {
         const response = await axios.get('https://users.roblox.com/v1/users/authenticated', {
@@ -199,7 +207,28 @@ async function start() {
 
         // Transisi ke link berikutnya tanpa Force Close
         if (i === linkCodes.length - 1) {
-            console.log("\n🏁 Semua link code sudah diproses. Script selesai.");
+            console.log("\n🏁 Semua link code sudah diproses.");
+            console.log("🔄 Memeriksa status terakhir sebelum force close...");
+            
+            // Cek status terakhir untuk memastikan
+            const csrf = await getCsrfToken(COOKIE);
+            if (csrf) {
+                const presenceData = await checkPresence(userData.id, COOKIE, csrf);
+                if (presenceData && presenceData.userPresenceType === 2) {
+                    console.log("⚠️ Akun masih in-game, menunggu keluar...");
+                    // Tunggu sampai keluar dari game
+                    while (presenceData && presenceData.userPresenceType === 2) {
+                        await sleep(10000);
+                        const updatedPresence = await checkPresence(userData.id, COOKIE, csrf);
+                        if (updatedPresence && updatedPresence.userPresenceType !== 2) {
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            await forceCloseApp();
+            console.log("📱 Script selesai. Aplikasi telah ditutup paksa.");
             process.exit(0);
         } else {
             console.log("➡️ Bersiap memanggil link code selanjutnya...");
