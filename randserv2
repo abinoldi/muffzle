@@ -32,7 +32,7 @@ const POST_GAME_WAIT = 15000;
 const MAX_FINAL_RETRIES = 3;
 
 // --- DETEKSI SETTINGS ---
-const MIN_RAM_THRESHOLD = 20; // MB - Jika RAM di bawah ini, langsung rejoin
+const MIN_RAM_THRESHOLD = 10; // MB - Jika RAM di bawah ini, langsung rejoin
 const PRESENCE_CHECK_DELAY = 60000; // 1 menit - Tunggu sebelum cek presence pertama
 const DEBUG_MODE = false; // Set ke true untuk melihat log deteksi
 
@@ -545,15 +545,20 @@ async function runSolver(fullCookie, accPkg) {
         accountStates[accPkg].serverStatus = "✅ Solver Passed";
         return true;
     } catch (error) {
-        if (error.response) {
-            accountStates[accPkg].serverStatus = "❌ Solver API Err";
-        } else if (error.code === 'ECONNABORTED') {
-            accountStates[accPkg].serverStatus = "⚠️ Solver Timeout";
-        } else {
-            accountStates[accPkg].serverStatus = "❌ Solver Offline";
-        }
-        return false;
-    }
+      // Log ini untuk debugging pribadi
+      console.error(`Acc: ${accPkg} | Error: ${error.message}`); 
+  
+      if (error.response) {
+          // Server menjawab dengan status code (misal 500, 502, 504)
+          accountStates[accPkg].serverStatus = `❌ Server Error (${error.response.status})`;
+      } else if (error.request) {
+          // Request dikirim tapi tidak ada jawaban sama sekali
+          accountStates[accPkg].serverStatus = "⚠️ No Response/Timeout";
+      } else {
+          accountStates[accPkg].serverStatus = "❌ Setup Error";
+      }
+      return false;
+  }
 }
 
 async function main() {
@@ -755,11 +760,11 @@ async function main() {
           await sleep(3000);
           await protectProcessFromLMK(acc.pkg);
           
-          for(let w = 1; w <= 20; w++) {
+          for(let w = 1; w <= 45; w++) {
               if (w % 5 === 0) {
                 await refreshRamUsage(acc.pkg);
               }
-              renderDashboard(codeDisplay, `⏳ Menunggu ${acc.username} re-open... (${w}/20s) 🛡️ Shield ON`);
+              renderDashboard(codeDisplay, `⏳ Menunggu ${acc.username} re-open... (${w}/45s) 🛡️ Shield ON`);
               await sleep(1000);
           }
           
