@@ -5,13 +5,6 @@ const fs = require("fs");
 const readline = require("readline");
 const os = require("os");
 const axios = require("axios"); // Pastikan axios sudah di require
-const http = require('http');
-const https = require('https');
-
-const axiosInstance = axios.create({
-    httpAgent: new http.Agent({ keepAlive: true }),
-    httpsAgent: new https.Agent({ keepAlive: true }),
-});
 
 // --- CONFIGURATION ---
 const MSRV_URL = "https://ghostbin.axel.org/paste/nk4fh/raw";
