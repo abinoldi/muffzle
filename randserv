@@ -755,43 +755,73 @@ async function main() {
           accountStates[acc.pkg].action = `✅ ${healthCheck.ram}MB`;
         } else {
           anyCrashed = true;
-          accountStates[acc.pkg].isRunning = false;
-          let crashReason = healthCheck.reason;
-          accountStates[acc.pkg].serverStatus = `⚠️ ${crashReason} - Reopening...`;
-          accountStates[acc.pkg].ramUsage = "0 MB";
-          accountStates[acc.pkg].action = `⚠️ ${crashReason}`;
-          renderDashboard(codeDisplay, `⚠️ ${acc.username} ${crashReason} - Melakukan Auto-Reopen...`);
-          
-          stopPackage(acc.pkg);
-          releaseMemory();
-          await sleep(1500);
+          let isStable = false;
+          let currentCrashReason = healthCheck.reason;
 
-          accountStates[acc.pkg].serverStatus = "Solving Captcha ⏳";
-          renderDashboard(codeDisplay, `🤖 Memproses Solver API untuk ${acc.username}...`);
-          await runSolver(acc.cookie, acc.pkg);
-          
-          let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
-          if(currentCode.includes("linkCode=")) {
-              currentCode = currentCode.split("linkCode=")[1].split("&")[0];
-          }
-          const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
-          
-          await launchPackage(acc.pkg, finalLaunchUrl);
-          await sleep(3000);
-          await protectProcessFromLMK(acc.pkg);
-          
-          for(let w = 1; w <= 45; w++) {
-              if (w % 5 === 0) {
-                await refreshRamUsage(acc.pkg);
+          // Tambahkan loop pengaman seperti di Fase 1
+          while (!isStable) {
+              accountStates[acc.pkg].isRunning = false;
+              accountStates[acc.pkg].serverStatus = `⚠️ ${currentCrashReason} - Reopening...`;
+              accountStates[acc.pkg].ramUsage = "0 MB";
+              accountStates[acc.pkg].action = `⚠️ ${currentCrashReason}`;
+              renderDashboard(codeDisplay, `⚠️ ${acc.username} ${currentCrashReason} - Melakukan Auto-Reopen...`);
+
+              stopPackage(acc.pkg);
+              releaseMemory();
+              await sleep(1500);
+
+              accountStates[acc.pkg].serverStatus = "Solving Captcha ⏳";
+              renderDashboard(codeDisplay, `🤖 Memproses Solver API untuk ${acc.username}...`);
+              await runSolver(acc.cookie, acc.pkg);
+              
+              let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
+              if(currentCode.includes("linkCode=")) {
+                  currentCode = currentCode.split("linkCode=")[1].split("&")[0];
               }
-              renderDashboard(codeDisplay, `⏳ Menunggu ${acc.username} re-open... (${w}/45s) 🛡️ Shield ON`);
-              await sleep(1000);
+              const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
+              
+              await launchPackage(acc.pkg, finalLaunchUrl);
+              
+              // PERBAIKAN: Reset timer agar cooldown 1 menit pengecekan Roblox API berfungsi
+              launchTimers[acc.pkg] = Date.now(); 
+              
+              await sleep(3000);
+              await protectProcessFromLMK(acc.pkg);
+              
+              let crashedDuringRecovery = false;
+              
+              // PERBAIKAN: Pantau kesehatan secara aktif selama 60 detik (bukan cuma pasif sleep 45 detik)
+              for(let w = 1; w <= 60; w++) {
+                  if (w % 5 === 0) {
+                    await refreshRamUsage(acc.pkg);
+                  }
+                  renderDashboard(codeDisplay, `⏳ Menunggu ${acc.username} re-open... (${w}/60s) 🛡️ Shield ON`);
+                  await sleep(1000);
+
+                  const recoveryHealth = await isAppHealthy(acc.pkg, acc.cookie, acc.userId);
+                  if (!recoveryHealth.healthy) {
+                      currentCrashReason = recoveryHealth.reason;
+                      accountStates[acc.pkg].serverStatus = `Crash: ${currentCrashReason}`;
+                      await refreshRamUsage(acc.pkg);
+                      renderDashboard(codeDisplay, `⚠️ ${acc.username} ${currentCrashReason} di detik ${w}! Membuka ulang...`);
+                      crashedDuringRecovery = true;
+                      await sleep(3000);
+                      break; // Break loop 60s, kembali ke while(!isStable)
+                  } else if (recoveryHealth.loading) {
+                      accountStates[acc.pkg].serverStatus = `⏳ ${recoveryHealth.reason}`;
+                  }
+              }
+              
+              // Jika berhasil bertahan 60 detik penuh tanpa crash, baru anggap stabil
+              if (!crashedDuringRecovery) {
+                  await refreshRamUsage(acc.pkg);
+                  accountStates[acc.pkg].isRunning = true;
+                  accountStates[acc.pkg].serverStatus = "In Game 🎮 (Recovered)";
+                  accountStates[acc.pkg].action = "Recovered";
+                  isStable = true;
+                  await sleep(2000);
+              }
           }
-          
-          await refreshRamUsage(acc.pkg);
-          accountStates[acc.pkg].isRunning = true;
-          accountStates[acc.pkg].serverStatus = "In Game 🎮 (Recovered)";
-          accountStates[acc.pkg].action = "Recovered";
         }
     }
 
