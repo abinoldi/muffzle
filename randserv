@@ -703,7 +703,7 @@ async function main() {
     }
   }
 
-  // --- FASE 2: CONTINUOUS MONITORING ---
+// --- FASE 2: CONTINUOUS MONITORING ---
   console.log("\n🔄 Memasuki Mode Continuous Monitoring...");
   releaseMemory();
 
@@ -712,6 +712,29 @@ async function main() {
     for (let i = 0; i < accounts.length; i++) {
         const acc = accounts[i];
 
+        // ==========================================
+        // 1. CEK VALIDITAS COOKIE (Mencegah launch jika 403/Banned)
+        // ==========================================
+        renderDashboard(codeDisplay, `🔒 Cek validitas cookie ${acc.username}...`);
+        const cookieStatus = await getUserInfo(acc.cookie);
+        
+        // Jika API mengembalikan id null atau Expired (efek 401/403)
+        if (!cookieStatus.id || cookieStatus.name === "Expired") {
+            accountStates[acc.pkg].serverStatus = "❌ Invalid/Banned (403)";
+            accountStates[acc.pkg].isRunning = false;
+            accountStates[acc.pkg].ramUsage = "0 MB";
+            accountStates[acc.pkg].action = "Skipped";
+            
+            renderDashboard(codeDisplay, `⚠️ Akun ${acc.username} Invalid/Banned. Skip auto-reopen.`);
+            
+            // Pastikan app benar-benar dimatikan agar tidak makan RAM
+            stopPackage(acc.pkg); 
+            await sleep(2000);
+            
+            continue; // Skip pengecekan health & rejoin, langsung lanjut ke akun berikutnya
+        }
+        // ==========================================
+
         renderDashboard(codeDisplay, `👀 Mengecek status ${acc.username}...`);
         await sleep(2000); 
 
@@ -719,10 +742,9 @@ async function main() {
         
         // CHECK KESEHATAN DENGAN ROBLOX API PRESENCE (dengan cooldown 1 menit)
         const healthCheck = await isAppHealthy(acc.pkg, acc.cookie, acc.userId);
-
+        
         if (healthCheck.healthy) {
           accountStates[acc.pkg].isRunning = true;
-          
           if (healthCheck.loading) {
             // Masih dalam masa loading setelah rejoin
             accountStates[acc.pkg].serverStatus = `⏳ ${healthCheck.reason}`;
@@ -734,12 +756,10 @@ async function main() {
         } else {
           anyCrashed = true;
           accountStates[acc.pkg].isRunning = false;
-          
           let crashReason = healthCheck.reason;
           accountStates[acc.pkg].serverStatus = `⚠️ ${crashReason} - Reopening...`;
           accountStates[acc.pkg].ramUsage = "0 MB";
           accountStates[acc.pkg].action = `⚠️ ${crashReason}`;
-          
           renderDashboard(codeDisplay, `⚠️ ${acc.username} ${crashReason} - Melakukan Auto-Reopen...`);
           
           stopPackage(acc.pkg);
