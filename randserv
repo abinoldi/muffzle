@@ -4,7 +4,43 @@ const { execSync } = require("child_process");
 const fs = require("fs");
 const readline = require("readline");
 const os = require("os");
-const axios = require("axios"); // Pastikan axios sudah di require
+const http = require("http");
+const https = require("https");
+
+function ensurePackage(pkg) {
+  try { require.resolve(pkg); } 
+  catch {
+    try { execSync(`npm install ${pkg}`, { stdio: "inherit" });
+    } catch (e) { process.exit(1); }
+  }
+}
+
+// Memastikan semua package yang dibutuhkan terinstall
+["cli-table3", "axios", "axios-retry"].forEach(ensurePackage);
+
+const Table = require("cli-table3");
+const axios = require("axios");
+const axiosRetry = require("axios-retry").default || require("axios-retry");
+
+// --- NETWORK STABILITY TWEAKS ---
+// 1. Keep-Alive: Menggunakan ulang koneksi TCP untuk mencegah RTO dan mempercepat request
+axios.defaults.httpAgent = new http.Agent({ keepAlive: true, maxSockets: 50 });
+axios.defaults.httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 50 });
+
+// 2. Global Timeout: Mencegah script hang selamanya (15 detik)
+axios.defaults.timeout = 15000; 
+
+// 3. Auto-Retry: Otomatis coba lagi jika ada packet loss atau RTO
+axiosRetry(axios, {
+  retries: 3, 
+  retryDelay: (retryCount) => {
+    return retryCount * 2000; // Delay 2s, 4s, 6s
+  },
+  retryCondition: (error) => {
+    // Retry jika error jaringan atau timeout
+    return axiosRetry.isNetworkOrIdempotentRequestError(error) || error.code === 'ECONNABORTED';
+  }
+});
 
 // --- CONFIGURATION ---
 const MSRV_URL = "https://ghostbin.axel.org/paste/nk4fh/raw";
@@ -36,18 +72,6 @@ const MIN_RAM_THRESHOLD = 10; // MB - Jika RAM di bawah ini, langsung rejoin
 const PRESENCE_CHECK_DELAY = 60000; // 1 menit - Tunggu sebelum cek presence pertama
 const DEBUG_MODE = false; // Set ke true untuk melihat log deteksi
 
-function ensurePackage(pkg) {
-  try { require.resolve(pkg); } 
-  catch {
-    try { execSync(`npm install ${pkg}`, { stdio: "inherit" });
-    } catch (e) { process.exit(1); }
-  }
-}
-// Sudah include axios
-["cli-table3"].forEach(ensurePackage);
-
-const Table = require("cli-table3");
-
 const TERMUX_PREFIX = "/data/data/com.termux/files/usr/bin";
 const NODE_PATH = `${TERMUX_PREFIX}/node`;
 const SQLITE_PATH = `${TERMUX_PREFIX}/sqlite3`;
@@ -56,6 +80,18 @@ let lastRestartMap = {};
 let accountStates = {};
 let csrfTokens = {}; // Menyimpan CSRF token per akun
 let launchTimers = {}; // Menyimpan waktu launch per akun
+
+// --- ANTI-DOZE TERMUX ---
+// Mencegah Android mematikan radio jaringan saat layar mati/background
+function startNetworkKeepAlive() {
+  setInterval(async () => {
+    try {
+      await axios.head('https://8.8.8.8', { timeout: 5000 }); 
+    } catch (e) {
+      // Abaikan jika gagal, tujuannya hanya memancing aktivitas jaringan
+    }
+  }, 120000); // Tembak ping ringan setiap 2 menit
+}
 
 // --- PERFORMANCE BOOSTER ---
 function applyPerformanceTweaks() {
@@ -148,7 +184,7 @@ function getRobloxCookie(packageName) {
     let cookie = execSync(query).toString().trim();
     execSync(`rm "${tempPath}"`);
     if (cookie && !cookie.startsWith("_")) cookie = "_" + cookie;
-    return cookie ? cookie : null; // Kembalikan cookie tanpa .ROBLOSECURITY=
+    return cookie ? cookie : null; 
   } catch { return null; }
 }
 
@@ -167,7 +203,6 @@ async function getUserInfo(cookie) {
   }
 }
 
-// --- FUNCTION TO GET CSRF TOKEN FROM ROBLOX ---
 async function getCsrfToken(cookie) {
   try {
     await axios.post('https://auth.roblox.com/v2/logout', {}, {
@@ -184,10 +219,8 @@ async function getCsrfToken(cookie) {
   return null;
 }
 
-// --- FUNCTION TO CHECK PRESENCE VIA ROBLOX API (MOST ACCURATE) ---
 async function checkRobloxPresence(cookie, userId, pkg) {
   try {
-    // Dapatkan CSRF token jika belum ada
     if (!csrfTokens[pkg]) {
       csrfTokens[pkg] = await getCsrfToken(cookie);
     }
@@ -210,7 +243,6 @@ async function checkRobloxPresence(cookie, userId, pkg) {
       console.log(`[DEBUG] ${pkg}: Roblox Presence Type: ${presence.userPresenceType}`);
     }
     
-    // userPresenceType: 0=Offline, 1=Online, 2=In-Game, 3=Studio
     return {
       isInGame: presence.userPresenceType === 2,
       presenceType: presence.userPresenceType,
@@ -220,9 +252,7 @@ async function checkRobloxPresence(cookie, userId, pkg) {
     };
   } catch (error) {
     if (error.response && error.response.status === 403) {
-      // CSRF token expired, coba refresh
       csrfTokens[pkg] = await getCsrfToken(cookie);
-      // Coba lagi sekali
       try {
         const retryResponse = await axios.post('https://presence.roblox.com/v1/presence/users', 
           { userIds: [userId] },
@@ -260,7 +290,6 @@ function releaseMemory() {
   } catch (e) { return false; }
 }
 
-// --- FUNCTION TO GET APP RAM DENGAN RETRY ---
 function getAppRam(pkg, retryCount = 0) {
   try {
     const pid = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
@@ -288,7 +317,6 @@ function getAppRam(pkg, retryCount = 0) {
   }
 }
 
-// --- FUNCTION TO FORCE REFRESH RAM USAGE ---
 async function refreshRamUsage(pkg) {
   await sleep(2000);
   
@@ -305,46 +333,36 @@ async function refreshRamUsage(pkg) {
   return ramValue;
 }
 
-// --- FUNCTION TO CHECK IF USER IS IN-GAME (COMBINED METHODS) ---
 async function isUserInGame(pkg, cookie, userId) {
-  // CEK APAKAH SUDAH MELEWATI DELAY 1 MENIT SEJAK LAUNCH?
   const now = Date.now();
   const lastLaunch = launchTimers[pkg] || 0;
   const timeSinceLaunch = now - lastLaunch;
   
-  // Jika belum 1 menit sejak launch, anggap masih dalam proses loading
   if (lastLaunch > 0 && timeSinceLaunch < PRESENCE_CHECK_DELAY) {
     if (DEBUG_MODE) {
       console.log(`[DEBUG] ${pkg}: Still in cooldown (${Math.round(timeSinceLaunch/1000)}s/${PRESENCE_CHECK_DELAY/1000}s)`);
     }
-    // Return true agar tidak di-rejoin, tapi dengan catatan "Loading"
     return { isInGame: true, status: "loading", timeRemaining: PRESENCE_CHECK_DELAY - timeSinceLaunch };
   }
   
-  // METHOD 1: Cek via Roblox API (PALING AKURAT) - hanya jika sudah lewat 1 menit
   if (cookie && userId) {
     const robloxPresence = await checkRobloxPresence(cookie, userId, pkg);
     if (robloxPresence.isInGame) {
       return { isInGame: true, status: "in-game", source: "roblox-api" };
     }
     
-    // Jika Roblox API bilang offline, double-check dengan local detection
     if (robloxPresence.presenceType === 0) {
-      // User benar-benar offline menurut Roblox
       return { isInGame: false, status: "offline", source: "roblox-api" };
     }
   }
   
-  // METHOD 2: Cek foreground app (local fallback)
   try {
     const foregroundApp = execSync(`su -c "dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' | head -1"`, { encoding: 'utf8' }).trim();
-    
     if (foregroundApp.includes(pkg) || foregroundApp.includes("Roblox")) {
       return { isInGame: true, status: "in-game", source: "foreground" };
     }
   } catch (e) {}
   
-  // METHOD 3: Cek visible activity
   try {
     const visibleActivity = execSync(`su -c "dumpsys activity activities | grep -B 5 -A 5 '${pkg}' | grep -E 'mVisible=true|ResumedActivity'"`, { encoding: 'utf8' }).trim();
     if (visibleActivity) {
@@ -352,7 +370,6 @@ async function isUserInGame(pkg, cookie, userId) {
     }
   } catch (e) {}
   
-  // METHOD 4: Cek process importance
   try {
     const procInfo = execSync(`su -c "dumpsys activity processes | grep -A 5 '${pkg}' | grep -E 'importance='"`, { encoding: 'utf8' }).trim();
     if (procInfo.includes("importance=100") || procInfo.includes("importance=200")) {
@@ -363,19 +380,15 @@ async function isUserInGame(pkg, cookie, userId) {
   return { isInGame: false, status: "unknown" };
 }
 
-// --- FUNCTION TO CHECK IF APP IS HEALTHY - WITH ROBLOX API PRESENCE ---
 async function isAppHealthy(pkg, cookie, userId) {
-  // Check 1: Apakah proses berjalan?
   const processRunning = isAppRunning(pkg);
   if (!processRunning) {
     return { healthy: false, reason: "Process Not Running", ram: 0, priority: "critical" };
   }
   
-  // Check 2: Cek RAM usage
   const ramStr = getAppRam(pkg);
   const ramValue = parseFloat(ramStr) || 0;
   
-  // JIKA RAM SANGAT RENDAH (< 100MB), langsung rejoin (indikasi crash)
   if (ramValue < MIN_RAM_THRESHOLD && ramValue > 0) {
     return { 
       healthy: false, 
@@ -385,14 +398,12 @@ async function isAppHealthy(pkg, cookie, userId) {
     };
   }
   
-  // Check 3: Cek Presence via Roblox API (hanya jika sudah lewat 1 menit)
   const presenceResult = await isUserInGame(pkg, cookie, userId);
   
   if (DEBUG_MODE) {
     console.log(`[DEBUG] ${pkg}: RAM=${ramValue}MB, Presence=${presenceResult.status}, Source=${presenceResult.source}`);
   }
   
-  // Jika masih dalam masa loading (belum 1 menit), anggap sehat
   if (presenceResult.status === "loading") {
     return { 
       healthy: true, 
@@ -403,7 +414,6 @@ async function isAppHealthy(pkg, cookie, userId) {
     };
   }
   
-  // Jika user tidak dalam game, REJOIN
   if (!presenceResult.isInGame) {
     return { 
       healthy: false, 
@@ -413,7 +423,6 @@ async function isAppHealthy(pkg, cookie, userId) {
     };
   }
   
-  // Semua check lulus
   return { 
     healthy: true, 
     reason: "Healthy", 
@@ -453,7 +462,6 @@ async function launchPackage(pkg, url) {
   try {
     const cmd = `am start -n ${pkg}/com.roblox.client.ActivityProtocolLaunch -f 0x18080000 -a android.intent.action.VIEW -d "${url}"`;
     execSync(cmd, { stdio: 'ignore' });
-    // Catat waktu launch
     launchTimers[pkg] = Date.now();
   } catch (e) {}
 }
@@ -535,24 +543,18 @@ function isAppRunning(pkg) {
   } catch (e) { return false; }
 }
 
-// --- SOLVER API FUNCTION ---
 async function runSolver(fullCookie, accPkg) {
     try {
         const res = await axios.get(SOLVER_API_URL, {
             params: { cookie: fullCookie, yeskey: YES_KEY },
-            timeout: 900000 
+            timeout: 900000 // 15 menit khusus untuk solver
         });
         accountStates[accPkg].serverStatus = "✅ Solver Passed";
         return true;
     } catch (error) {
-      // Log ini untuk debugging pribadi
-      console.error(`Acc: ${accPkg} | Error: ${error.message}`); 
-  
       if (error.response) {
-          // Server menjawab dengan status code (misal 500, 502, 504)
           accountStates[accPkg].serverStatus = `❌ Server Error (${error.response.status})`;
       } else if (error.request) {
-          // Request dikirim tapi tidak ada jawaban sama sekali
           accountStates[accPkg].serverStatus = "⚠️ No Response/Timeout";
       } else {
           accountStates[accPkg].serverStatus = "❌ Setup Error";
@@ -563,6 +565,10 @@ async function runSolver(fullCookie, accPkg) {
 
 async function main() {
   initSystem();
+  
+  // Menjalankan fitur Anti-Doze Termux agar jaringan stabil
+  startNetworkKeepAlive();
+
   console.clear();
   console.log("🚀 Initializing Manager (Continuous Mode)...");
 
@@ -590,7 +596,6 @@ async function main() {
     lastRestartMap[pkg] = 0;
     accountStates[pkg] = { username: userInfo.name, isRunning: false, serverStatus: "Waiting...", ramUsage: "0 MB", action: "-" };
     
-    // Pre-fetch CSRF token
     csrfTokens[pkg] = await getCsrfToken(cookie);
   }
 
@@ -636,12 +641,10 @@ async function main() {
   const codeDisplay = AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`;
   autoArrangeXML(accounts.map(a => a.pkg));
 
-  // --- FASE 1: PELUNCURAN BERURUTAN ---
   console.log("\n🚀 Launching valid instances (Fase 1)...");
   for (let i = 0; i < accounts.length; i++) {
     const acc = accounts[i];
     
-    // --- EKSEKUSI SOLVER SEBELUM LAUNCH ---
     accountStates[acc.pkg].serverStatus = "Solving Captcha ⏳";
     renderDashboard(codeDisplay, `🤖 Mengirim cookie ${acc.username} ke Solver API...`);
     await runSolver(acc.cookie, acc.pkg);
@@ -677,7 +680,6 @@ async function main() {
         renderDashboard(codeDisplay, `⏳ ${acc.username} Stabilizing... (${sec}/60s) 🛡️ Shield ON`);
         await sleep(1000); 
 
-        // Cek kesehatan tapi dengan cooldown presence 1 menit
         const healthCheck = await isAppHealthy(acc.pkg, acc.cookie, acc.userId);
         
         if (!healthCheck.healthy) {
@@ -688,7 +690,6 @@ async function main() {
             await sleep(3000); 
             break; 
         } else if (healthCheck.loading) {
-            // Masih dalam masa loading, tampilkan status loading
             accountStates[acc.pkg].serverStatus = `⏳ ${healthCheck.reason}`;
         }
       }
@@ -703,7 +704,6 @@ async function main() {
     }
   }
 
-// --- FASE 2: CONTINUOUS MONITORING ---
   console.log("\n🔄 Memasuki Mode Continuous Monitoring...");
   releaseMemory();
 
@@ -712,13 +712,9 @@ async function main() {
     for (let i = 0; i < accounts.length; i++) {
         const acc = accounts[i];
 
-        // ==========================================
-        // 1. CEK VALIDITAS COOKIE (Mencegah launch jika 403/Banned)
-        // ==========================================
         renderDashboard(codeDisplay, `🔒 Cek validitas cookie ${acc.username}...`);
         const cookieStatus = await getUserInfo(acc.cookie);
         
-        // Jika API mengembalikan id null atau Expired (efek 401/403)
         if (!cookieStatus.id || cookieStatus.name === "Expired") {
             accountStates[acc.pkg].serverStatus = "❌ Invalid/Banned (403)";
             accountStates[acc.pkg].isRunning = false;
@@ -727,26 +723,22 @@ async function main() {
             
             renderDashboard(codeDisplay, `⚠️ Akun ${acc.username} Invalid/Banned. Skip auto-reopen.`);
             
-            // Pastikan app benar-benar dimatikan agar tidak makan RAM
             stopPackage(acc.pkg); 
             await sleep(2000);
             
-            continue; // Skip pengecekan health & rejoin, langsung lanjut ke akun berikutnya
+            continue;
         }
-        // ==========================================
 
         renderDashboard(codeDisplay, `👀 Mengecek status ${acc.username}...`);
         await sleep(2000); 
 
         await refreshRamUsage(acc.pkg);
         
-        // CHECK KESEHATAN DENGAN ROBLOX API PRESENCE (dengan cooldown 1 menit)
         const healthCheck = await isAppHealthy(acc.pkg, acc.cookie, acc.userId);
         
         if (healthCheck.healthy) {
           accountStates[acc.pkg].isRunning = true;
           if (healthCheck.loading) {
-            // Masih dalam masa loading setelah rejoin
             accountStates[acc.pkg].serverStatus = `⏳ ${healthCheck.reason}`;
           } else {
             accountStates[acc.pkg].serverStatus = "In Game 🎮 (Monitoring)";
@@ -758,7 +750,6 @@ async function main() {
           let isStable = false;
           let currentCrashReason = healthCheck.reason;
 
-          // Tambahkan loop pengaman seperti di Fase 1
           while (!isStable) {
               accountStates[acc.pkg].isRunning = false;
               accountStates[acc.pkg].serverStatus = `⚠️ ${currentCrashReason} - Reopening...`;
@@ -782,7 +773,6 @@ async function main() {
               
               await launchPackage(acc.pkg, finalLaunchUrl);
               
-              // PERBAIKAN: Reset timer agar cooldown 1 menit pengecekan Roblox API berfungsi
               launchTimers[acc.pkg] = Date.now(); 
               
               await sleep(3000);
@@ -790,7 +780,6 @@ async function main() {
               
               let crashedDuringRecovery = false;
               
-              // PERBAIKAN: Pantau kesehatan secara aktif selama 60 detik (bukan cuma pasif sleep 45 detik)
               for(let w = 1; w <= 60; w++) {
                   if (w % 5 === 0) {
                     await refreshRamUsage(acc.pkg);
@@ -806,13 +795,12 @@ async function main() {
                       renderDashboard(codeDisplay, `⚠️ ${acc.username} ${currentCrashReason} di detik ${w}! Membuka ulang...`);
                       crashedDuringRecovery = true;
                       await sleep(3000);
-                      break; // Break loop 60s, kembali ke while(!isStable)
+                      break; 
                   } else if (recoveryHealth.loading) {
                       accountStates[acc.pkg].serverStatus = `⏳ ${recoveryHealth.reason}`;
                   }
               }
               
-              // Jika berhasil bertahan 60 detik penuh tanpa crash, baru anggap stabil
               if (!crashedDuringRecovery) {
                   await refreshRamUsage(acc.pkg);
                   accountStates[acc.pkg].isRunning = true;
