@@ -17,7 +17,7 @@ _G.FishItConfig = {
 }
 
 local lastTradeTime = tick() -- Mencatat waktu awal saat script dijalankan
-local IDLE_LIMIT = 300 -- Batas waktu 5 menit (300 detik)
+local IDLE_LIMIT = 30 -- Batas waktu 30 detik (30 detik)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
