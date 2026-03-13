@@ -1,10 +1,23 @@
 -- ======================================================
--- AUTO ACCEPT TRADE & TELEPORT KE RANDOM PLAYER (ADVANCED HOOK MODE)
+-- AUTO ACCEPT TRADE & TELEPORT (ADVANCED HOOK MODE)
 -- 100% NO VIM | RANDOM DELAY 3-4s | ANTI-AFK | AUTO-DISCONNECT
 -- ======================================================
 
+-- // 0. KONFIGURASI TELEPORT //
+_G.FishItConfig = {
+    -- Pilih mode teleportasi: "Ancient Ruin" atau "Player"
+    TeleportMode = "Ancient Ruin", 
+    
+    Locations = {
+        ["Ancient Ruin"] = {
+            Pos = Vector3.new(6031.981, -585.924, 4713.157), 
+            Look = Vector3.new(0.316, -0.000, -0.949)
+        }
+    }
+}
+
 local lastTradeTime = tick() -- Mencatat waktu awal saat script dijalankan
-local IDLE_LIMIT = 60 -- Batas waktu 5 menit (300 detik), diperbaiki dari 100
+local IDLE_LIMIT = 300 -- Batas waktu 5 menit (300 detik)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -14,43 +27,58 @@ local LocalPlayer = Players.LocalPlayer
 print("--- 🤖 MENGINISIALISASI SCRIPT ---")
 ---------------------------------------------------------
 
--- // 1. FUNGSI TELEPORT KE RANDOM PLAYER (LOOPING) //
+-- // 1. FUNGSI TELEPORT (Berdasarkan Config) //
 task.spawn(function()
-    while task.wait(10) do -- Looping terus-menerus dengan delay 5 detik
+    while task.wait(10) do -- Looping terus-menerus dengan delay 10 detik
         local myChar = LocalPlayer.Character
         
         -- Pastikan karakter kita ada dan memiliki HumanoidRootPart
         if myChar and myChar:FindFirstChild("HumanoidRootPart") then
             local myHRP = myChar.HumanoidRootPart
+            local mode = _G.FishItConfig.TeleportMode
             
-            -- Mengambil daftar semua player di server
-            local playersList = Players:GetPlayers()
-            local validTargets = {}
-            
-            -- Memfilter player: Kecualikan diri sendiri dan pastikan mereka punya karakter
-            for _, p in ipairs(playersList) do
-                if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                    table.insert(validTargets, p)
-                end
-            end
-            
-            -- Jika ada player lain di server yang valid
-            if #validTargets > 0 then
-                -- Pilih satu player secara acak
-                local targetPlayer = validTargets[math.random(1, #validTargets)]
-                local targetHRP = targetPlayer.Character.HumanoidRootPart
-                
-                -- Teleport dengan pengamanan pcall agar tidak error jika target tiba-tiba hilang
-                local success, err = pcall(function() 
-                    -- Teleport ke player tersebut dengan offset 3 stud ke belakang
-                    myHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 0, 3) 
+            if mode == "Ancient Ruin" then
+                -- Teleport ke lokasi statis Ancient Ruin
+                local locData = _G.FishItConfig.Locations["Ancient Ruin"]
+                local success, err = pcall(function()
+                    -- Membuat CFrame berdasarkan Posisi dan arah pandang (Look Vector)
+                    myHRP.CFrame = CFrame.new(locData.Pos, locData.Pos + locData.Look)
                 end)
                 
                 if success then
-                    print("📍 [LOOP] Teleportasi selesai ke player: " .. targetPlayer.Name)
+                    print("📍 [LOOP] Teleportasi selesai ke: Ancient Ruin")
                 end
-            else
-                warn("⚠️ [LOOP] Tidak ada player lain di server saat ini.")
+                
+            elseif mode == "Player" then
+                -- Teleport ke Random Player
+                local playersList = Players:GetPlayers()
+                local validTargets = {}
+                
+                -- Memfilter player: Kecualikan diri sendiri dan pastikan mereka punya karakter
+                for _, p in ipairs(playersList) do
+                    if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                        table.insert(validTargets, p)
+                    end
+                end
+                
+                -- Jika ada player lain di server yang valid
+                if #validTargets > 0 then
+                    -- Pilih satu player secara acak
+                    local targetPlayer = validTargets[math.random(1, #validTargets)]
+                    local targetHRP = targetPlayer.Character.HumanoidRootPart
+                    
+                    -- Teleport dengan pengamanan pcall agar tidak error jika target tiba-tiba hilang
+                    local success, err = pcall(function() 
+                        -- Teleport ke player tersebut dengan offset 3 stud ke belakang
+                        myHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 0, 3) 
+                    end)
+                    
+                    if success then
+                        print("📍 [LOOP] Teleportasi selesai ke player: " .. targetPlayer.Name)
+                    end
+                else
+                    warn("⚠️ [LOOP] Tidak ada player lain di server saat ini.")
+                end
             end
         end
     end
