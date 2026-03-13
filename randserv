@@ -20,7 +20,7 @@ const AUTO_RECONNECT = true;
 const AUTO_RANDOM_CODE = false;
 
 // --- GRID SETTINGS (XML) ---
-const GRID_COLS = 3;
+const GRID_COLS = 4;
 const BOX_SIZE = 150;
 const START_OFFSET_Y = 50;
 const GAP_X = 5;            
@@ -540,7 +540,7 @@ async function runSolver(fullCookie, accPkg) {
     try {
         const res = await axios.get(SOLVER_API_URL, {
             params: { cookie: fullCookie, yeskey: YES_KEY },
-            timeout: 300000 
+            timeout: 900000 
         });
         accountStates[accPkg].serverStatus = "✅ Solver Passed";
         return true;
