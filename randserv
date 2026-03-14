@@ -43,7 +43,7 @@ axiosRetry(axios, {
 });
 
 // --- CONFIGURATION ---
-const MSRV_URL = "https://ghostbin.axel.org/paste/nk4fh/raw";
+const MSRV_URL = "https://raw.githubusercontent.com/abinoldi/skdajws/refs/heads/main/sskdau";
 const PLACE_ID = "121864768012064";
 
 // --- SOLVER CONFIGURATION ---
