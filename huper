@@ -3,7 +3,7 @@ const { exec } = require('child_process');
 const readline = require('readline');
 
 // --- KONFIGURASI BARU ---
-const GHOSTBIN_URL = "https://ghostbin.axel.org/paste/nk4fh/raw";
+const GHOSTBIN_URL = "https://raw.githubusercontent.com/abinoldi/skdajws/refs/heads/main/sskdau";
 const PACKAGE_NAME = "com.roblox.clienb"; 
 const PLACE_ID = "121864768012064";
 const CHECK_INTERVAL = 60000; // 1 menit (ms) untuk monitoring
