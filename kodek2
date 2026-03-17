@@ -6,7 +6,7 @@
 # =============================================
 
 # Konfigurasi Baru (Direct Link)
-TARGET_URL="http://43.134.116.2:5555/uploaded/newkudek.zip"
+TARGET_URL="http://43.134.116.2:5555/uploaded/ohkudek.zip"
 STORAGE_DIR="/sdcard/Download/APKHasil" 
 ZIP_FILE="newkudek.zip"
 
