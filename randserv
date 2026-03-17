@@ -8,7 +8,8 @@ const http = require("http");
 const https = require("https");
 
 function ensurePackage(pkg) {
-  try { require.resolve(pkg); } 
+  try { require.resolve(pkg);
+  } 
   catch {
     try { execSync(`npm install ${pkg}`, { stdio: "inherit" });
     } catch (e) { process.exit(1); }
@@ -28,7 +29,7 @@ axios.defaults.httpAgent = new http.Agent({ keepAlive: true, maxSockets: 50 });
 axios.defaults.httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 50 });
 
 // 2. Global Timeout: Mencegah script hang selamanya (15 detik)
-axios.defaults.timeout = 15000; 
+axios.defaults.timeout = 15000;
 
 // 3. Auto-Retry: Otomatis coba lagi jika ada packet loss atau RTO
 axiosRetry(axios, {
@@ -63,7 +64,7 @@ const GAP_X = 5;
 const GAP_Y = 60;
 
 // --- TIMING & RETRY ---
-const CHECK_INTERVAL = 60000; // 2 menit
+const CHECK_INTERVAL = 60000; // 1 menit
 const POST_GAME_WAIT = 15000;
 const MAX_FINAL_RETRIES = 3;
 
@@ -98,8 +99,7 @@ function applyPerformanceTweaks() {
   console.log("\n🚀 Menerapkan Tweak Performa (CPU, Thermal, UI)...");
   try {
       const tweaksCmd = `
-          for i in {0..7};
-          do
+          for i in {0..7}; do
               echo 1 > /sys/devices/system/cpu/cpu$i/online 2>/dev/null;
               echo performance > /sys/devices/system/cpu/cpu$i/cpufreq/scaling_governor 2>/dev/null;
           done;
@@ -128,8 +128,7 @@ function restoreSystemSettings() {
   console.log("\n♻️ Mengembalikan Pengaturan Sistem (Pendingin & Animasi)...");
   try {
       const restoreCmd = `
-          for i in {0..7};
-          do
+          for i in {0..7}; do
               echo schedutil > /sys/devices/system/cpu/cpu$i/cpufreq/scaling_governor 2>/dev/null;
           done;
           start thermal-engine 2>/dev/null;
@@ -184,7 +183,7 @@ function getRobloxCookie(packageName) {
     let cookie = execSync(query).toString().trim();
     execSync(`rm "${tempPath}"`);
     if (cookie && !cookie.startsWith("_")) cookie = "_" + cookie;
-    return cookie ? cookie : null; 
+    return cookie ? cookie : null;
   } catch { return null; }
 }
 
@@ -280,7 +279,8 @@ async function checkRobloxPresence(cookie, userId, pkg) {
 }
 
 function stopPackage(pkg) {
-  try { execSync(`am force-stop ${pkg}`, { stdio: 'ignore' }); } catch (e) {} 
+  try { execSync(`am force-stop ${pkg}`, { stdio: 'ignore' });
+  } catch (e) {} 
 }
 
 function releaseMemory() {
@@ -319,7 +319,6 @@ function getAppRam(pkg, retryCount = 0) {
 
 async function refreshRamUsage(pkg) {
   await sleep(2000);
-  
   let ramValue = "0 MB";
   for (let i = 0; i < 3; i++) {
     ramValue = getAppRam(pkg);
@@ -388,7 +387,6 @@ async function isAppHealthy(pkg, cookie, userId) {
   
   const ramStr = getAppRam(pkg);
   const ramValue = parseFloat(ramStr) || 0;
-  
   if (ramValue < MIN_RAM_THRESHOLD && ramValue > 0) {
     return { 
       healthy: false, 
@@ -399,7 +397,6 @@ async function isAppHealthy(pkg, cookie, userId) {
   }
   
   const presenceResult = await isUserInGame(pkg, cookie, userId);
-  
   if (DEBUG_MODE) {
     console.log(`[DEBUG] ${pkg}: RAM=${ramValue}MB, Presence=${presenceResult.status}, Source=${presenceResult.source}`);
   }
@@ -512,7 +509,7 @@ function renderDashboard(cleanCode, statusMessage) {
   const wUser = Math.floor(safeWidth * 0.15);
   const wState = Math.floor(safeWidth * 0.12);
   const wStatus = Math.floor(safeWidth * 0.20);
-  const wRam = 10; 
+  const wRam = 10;
   const wAction = Math.max(5, safeWidth - (wPkg + wUser + wState + wStatus + wRam));
 
   const table = new Table({ 
@@ -533,6 +530,7 @@ function renderDashboard(cleanCode, statusMessage) {
       s.action
     ]);
   });
+
   console.log(table.toString());
 }
 
@@ -540,7 +538,8 @@ function isAppRunning(pkg) {
   try {
     const output = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
     return output.length > 0;
-  } catch (e) { return false; }
+  } catch (e) { return false;
+  }
 }
 
 async function runSolver(fullCookie, accPkg) {
@@ -577,7 +576,7 @@ async function main() {
   const packages = getPackages();
   if (!packages.length) { 
     console.log("❌ No Roblox packages found."); 
-    process.exit(0); 
+    process.exit(0);
   }
 
   let accounts = [];
@@ -644,10 +643,10 @@ async function main() {
   console.log("\n🚀 Launching valid instances (Fase 1)...");
   for (let i = 0; i < accounts.length; i++) {
     const acc = accounts[i];
-    
     accountStates[acc.pkg].serverStatus = "Solving Captcha ⏳";
     renderDashboard(codeDisplay, `🤖 Mengirim cookie ${acc.username} ke Solver API...`);
     await runSolver(acc.cookie, acc.pkg);
+    
     renderDashboard(codeDisplay, `✅ Solver selesai untuk ${acc.username}. Melakukan Launching...`);
     await sleep(2000); 
 
@@ -688,7 +687,7 @@ async function main() {
             renderDashboard(codeDisplay, `⚠️ ${acc.username} ${healthCheck.reason} di detik ${sec}! Membuka ulang...`);
             crashed = true;
             await sleep(3000); 
-            break; 
+            break;
         } else if (healthCheck.loading) {
             accountStates[acc.pkg].serverStatus = `⏳ ${healthCheck.reason}`;
         }
@@ -699,41 +698,51 @@ async function main() {
         await refreshRamUsage(acc.pkg);
         renderDashboard(codeDisplay, `✅ ${acc.username} Stabil! Lanjut ke akun berikutnya...`);
         isStable = true; 
-        await sleep(2000); 
+        await sleep(2000);
       }
     }
   }
 
   console.log("\n🔄 Memasuki Mode Continuous Monitoring...");
   releaseMemory();
-
+  
   while (true) {
     let anyCrashed = false;
     for (let i = 0; i < accounts.length; i++) {
         const acc = accounts[i];
-
         renderDashboard(codeDisplay, `🔒 Cek validitas cookie ${acc.username}...`);
         const cookieStatus = await getUserInfo(acc.cookie);
         
+        // --- MODIFIKASI DIMULAI DI SINI (RESCUE/BYPASS SAAT MONITORING) ---
         if (!cookieStatus.id || cookieStatus.name === "Expired") {
-            accountStates[acc.pkg].serverStatus = "❌ Invalid/Banned (403)";
-            accountStates[acc.pkg].isRunning = false;
-            accountStates[acc.pkg].ramUsage = "0 MB";
-            accountStates[acc.pkg].action = "Skipped";
+            renderDashboard(codeDisplay, `⚠️ Akun ${acc.username} Invalid (403). Mencoba Trigger Solver...`);
+            accountStates[acc.pkg].serverStatus = "Solving Captcha (Rescue) ⏳";
             
-            renderDashboard(codeDisplay, `⚠️ Akun ${acc.username} Invalid/Banned. Skip auto-reopen.`);
+            // Trigger solver di sini sebagai upaya penyelamatan
+            const rescueSuccess = await runSolver(acc.cookie, acc.pkg);
             
-            stopPackage(acc.pkg); 
-            await sleep(2000);
-            
-            continue;
+            if (rescueSuccess) {
+                renderDashboard(codeDisplay, `✅ Rescue sukses! Melakukan persiapan restart instance ${acc.username}...`);
+                // Jika rescue berhasil, kita biarkan logic diteruskan ke bawah agar isAppHealthy 
+                // bisa menangani auto-reopen secara normal layaknya akun yang baru crash
+            } else {
+                accountStates[acc.pkg].serverStatus = "❌ Invalid/Banned (Rescue Gagal)";
+                accountStates[acc.pkg].isRunning = false;
+                accountStates[acc.pkg].ramUsage = "0 MB";
+                accountStates[acc.pkg].action = "Skipped";
+                
+                renderDashboard(codeDisplay, `⚠️ Akun ${acc.username} Invalid/Banned permanen. Skip auto-reopen.`);
+                stopPackage(acc.pkg); 
+                await sleep(2000);
+                continue; 
+            }
         }
+        // --- MODIFIKASI BERAKHIR DI SINI ---
 
         renderDashboard(codeDisplay, `👀 Mengecek status ${acc.username}...`);
         await sleep(2000); 
 
         await refreshRamUsage(acc.pkg);
-        
         const healthCheck = await isAppHealthy(acc.pkg, acc.cookie, acc.userId);
         
         if (healthCheck.healthy) {
@@ -755,6 +764,7 @@ async function main() {
               accountStates[acc.pkg].serverStatus = `⚠️ ${currentCrashReason} - Reopening...`;
               accountStates[acc.pkg].ramUsage = "0 MB";
               accountStates[acc.pkg].action = `⚠️ ${currentCrashReason}`;
+              
               renderDashboard(codeDisplay, `⚠️ ${acc.username} ${currentCrashReason} - Melakukan Auto-Reopen...`);
 
               stopPackage(acc.pkg);
@@ -770,7 +780,6 @@ async function main() {
                   currentCode = currentCode.split("linkCode=")[1].split("&")[0];
               }
               const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
-              
               await launchPackage(acc.pkg, finalLaunchUrl);
               
               launchTimers[acc.pkg] = Date.now(); 
@@ -779,7 +788,6 @@ async function main() {
               await protectProcessFromLMK(acc.pkg);
               
               let crashedDuringRecovery = false;
-              
               for(let w = 1; w <= 60; w++) {
                   if (w % 5 === 0) {
                     await refreshRamUsage(acc.pkg);
