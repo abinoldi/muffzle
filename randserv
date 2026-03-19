@@ -59,13 +59,13 @@ const GAP_X = 5;
 const GAP_Y = 60;
 
 // --- TIMING & RETRY ---
-const CHECK_INTERVAL = 60000; 
+const CHECK_INTERVAL = 30000; 
 const POST_GAME_WAIT = 15000;
 const MAX_FINAL_RETRIES = 3;
 
 // --- DETEKSI SETTINGS ---
 const MIN_RAM_THRESHOLD = 10; 
-const PRESENCE_CHECK_DELAY = 60000; 
+const PRESENCE_CHECK_DELAY = 30000; 
 const DEBUG_MODE = false; 
 
 const TERMUX_PREFIX = "/data/data/com.termux/files/usr/bin";
@@ -457,7 +457,10 @@ function autoArrangeXML(packages) {
   console.log("✅ Posisi XML tersimpan.");
 }
 
-// FUNGSI BARU: Pre-launch menggunakan monkey
+// =========================================================================
+// FUNGSI BARU: PRE-LAUNCH DENGAN MONKEY + PENGECEKAN STATUS
+// Memastikan app terbuka dan tidak crash sebelum dilanjutkan
+// =========================================================================
 function preLaunchAppWithMonkey(pkg) {
   try {
     execSync(`su -c "monkey -p ${pkg} -c android.intent.category.LAUNCHER 1"`, { stdio: 'ignore' });
@@ -466,6 +469,51 @@ function preLaunchAppWithMonkey(pkg) {
     return false;
   }
 }
+
+async function ensureAppPreLaunched(acc, codeDisplay) {
+  let isPreLaunchSuccess = false;
+
+  while (!isPreLaunchSuccess) {
+    accountStates[acc.pkg].serverStatus = "Pre-launching 🐒";
+    renderDashboard(codeDisplay, `🐒 Pre-launch ${acc.pkg} dengan Monkey...`);
+    
+    preLaunchAppWithMonkey(acc.pkg);
+    
+    let waitTime = 60; // Waktu tunggu maksimal 60 detik
+    let crashedDuringPreLaunch = false;
+
+    for (let w = 1; w <= waitTime; w++) {
+       renderDashboard(codeDisplay, `⏳ Menunggu app ${acc.username} terbuka... (${w}/${waitTime}s)`);
+       await sleep(1000);
+
+       // Cek setiap 5 detik agar efisien
+       if (w % 5 === 0) {
+         const isRunning = isAppRunning(acc.pkg);
+         const ramVal = parseFloat(getAppRam(acc.pkg)) || 0;
+         
+         // Jika aplikasi mati (PID hilang) atau RAM sangat kecil (nge-bug)
+         if (!isRunning || (ramVal > 0 && ramVal < MIN_RAM_THRESHOLD)) {
+            renderDashboard(codeDisplay, `⚠️ ${acc.username} Crash saat Pre-launch (RAM: ${ramVal}MB)! Mengulangi...`);
+            crashedDuringPreLaunch = true;
+            break; // Stop for-loop, tidak usah tunggu sisa 60 detiknya
+         }
+       }
+    }
+
+    if (!crashedDuringPreLaunch) {
+        isPreLaunchSuccess = true;
+        accountStates[acc.pkg].serverStatus = "Standby ✅";
+        renderDashboard(codeDisplay, `✅ App ${acc.username} sukses standby di background!`);
+        await sleep(1500);
+    } else {
+        // Bersihkan RAM dan proses sebelum mengulang loop prelaunch
+        stopPackage(acc.pkg);
+        releaseMemory();
+        await sleep(2000);
+    }
+  }
+}
+// =========================================================================
 
 async function launchPackage(pkg, url) {
   try {
@@ -643,52 +691,11 @@ async function main() {
   autoArrangeXML(accounts.map(a => a.pkg));
 
   // ==========================================
-  // FASE 0: PRE-LAUNCH MENGGUNAKAN MONKEY (DENGAN PENGECEKAN)
+  // FASE 0: PRE-LAUNCH AWAL UNTUK SEMUA APLIKASI
   // ==========================================
   console.log("\n🚀 Fase 0: Pre-launch (Monkey) untuk semua aplikasi...");
   for (let i = 0; i < accounts.length; i++) {
-    const acc = accounts[i];
-    let isPreLaunchSuccess = false;
-
-    while (!isPreLaunchSuccess) {
-      accountStates[acc.pkg].serverStatus = "Pre-launching 🐒";
-      renderDashboard(codeDisplay, `🐒 Pre-launch ${acc.pkg} dengan Monkey...`);
-      
-      preLaunchAppWithMonkey(acc.pkg);
-      
-      let waitTime = 30;
-      let crashedDuringPreLaunch = false;
-
-      for (let w = 1; w <= waitTime; w++) {
-         renderDashboard(codeDisplay, `⏳ Menunggu app ${acc.username} terbuka... (${w}/${waitTime}s)`);
-         await sleep(1000);
-
-         // Cek status proses setiap 5 detik agar tidak membebani CPU HP
-         if (w % 5 === 0) {
-           const isRunning = isAppRunning(acc.pkg);
-           const ramVal = parseFloat(getAppRam(acc.pkg)) || 0;
-           
-           // Jika proses tiba-tiba mati atau RAM drop (indikasi crash/force close)
-           if (!isRunning || (ramVal > 0 && ramVal < MIN_RAM_THRESHOLD)) {
-              renderDashboard(codeDisplay, `⚠️ ${acc.username} Crash saat Pre-launch (RAM: ${ramVal}MB)! Mengulangi...`);
-              crashedDuringPreLaunch = true;
-              break; // Langsung potong waktu tunggu, tidak perlu menunggu sampai 60 detik
-           }
-         }
-      }
-
-      if (!crashedDuringPreLaunch) {
-          isPreLaunchSuccess = true;
-          accountStates[acc.pkg].serverStatus = "Standby ✅";
-          renderDashboard(codeDisplay, `✅ App ${acc.username} sukses standby di background!`);
-          await sleep(1500);
-      } else {
-          // Bersihkan sisa proses yang crash sebelum mengulang pre-launch
-          stopPackage(acc.pkg);
-          releaseMemory();
-          await sleep(2000);
-      }
-    }
+    await ensureAppPreLaunched(accounts[i], codeDisplay);
   }
 
   // ==========================================
@@ -712,26 +719,18 @@ async function main() {
     const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
     
     let isStable = false;
-    let isFirstTry = true; // Penanda percobaan pertama (dari Fase 0)
+    let isFirstTry = true; // Flag agar tidak prelaunch ganda di percobaan pertama
 
     while (!isStable) {
       if (!isFirstTry) {
-          // Jika ini bukan percobaan pertama (artinya sempat crash), force stop dulu
           stopPackage(acc.pkg); 
           releaseMemory();
           await sleep(1500); 
           
-          // Re-Pre-launch menggunakan monkey untuk retry
-          renderDashboard(codeDisplay, `🐒 Re-Pre-launch ${acc.username} dengan Monkey (Recovery)...`);
-          preLaunchAppWithMonkey(acc.pkg);
-          
-          for (let w = 1; w <= 60; w++) {
-             renderDashboard(codeDisplay, `⏳ Menunggu app re-loading... (${w}/60s)`);
-             await sleep(1000);
-          }
+          // PRE-LAUNCH LAGI JIKA CRASH SAAT STABILIZING FASE 1
+          await ensureAppPreLaunched(acc, codeDisplay);
       }
 
-      // Inject LinkCode menggunakan Am Start
       await launchPackage(acc.pkg, finalLaunchUrl);
       lastRestartMap[acc.pkg] = Date.now();
       accountStates[acc.pkg].isRunning = true;
@@ -771,7 +770,6 @@ async function main() {
         await sleep(2000);
       }
       
-      // Matikan penanda first try agar loop berikutnya melakukan force-stop & re-launch jika crash
       isFirstTry = false; 
     }
   }
@@ -826,15 +824,10 @@ async function main() {
               releaseMemory();
               await sleep(1500);
 
-              // Buka aplikasi dengan monkey terlebih dahulu saat recovery
-              renderDashboard(codeDisplay, `🐒 Re-Pre-launch ${acc.username} dengan Monkey (Recovery)...`);
-              preLaunchAppWithMonkey(acc.pkg);
-              
-              for(let w = 1; w <= 60; w++) {
-                 renderDashboard(codeDisplay, `⏳ Menunggu app re-loading... (${w}/60s)`);
-                 await sleep(1000);
-              }
+              // 1. PRE-LAUNCH SEBELUM REJOIN
+              await ensureAppPreLaunched(acc, codeDisplay);
 
+              // 2. BYPASS CAPTCHA SEBELUM JOIN
               accountStates[acc.pkg].serverStatus = "Solving Captcha ⏳";
               renderDashboard(codeDisplay, `🤖 Memproses Solver API untuk ${acc.username}...`);
               await runSolver(acc.cookie, acc.pkg);
@@ -844,15 +837,16 @@ async function main() {
                   currentCode = currentCode.split("linkCode=")[1].split("&")[0];
               }
               const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
-              await launchPackage(acc.pkg, finalLaunchUrl);
               
+              // 3. INJECT LINKCODE KETIKA APP SUDAH STANDBY & CAPTCHA SOLVED
+              await launchPackage(acc.pkg, finalLaunchUrl);
               launchTimers[acc.pkg] = Date.now(); 
               
               await sleep(3000);
               await protectProcessFromLMK(acc.pkg);
               
               let crashedDuringRecovery = false;
-              for(let w = 1; w <= 60; w++) {
+              for(let w = 1; w <= 30; w++) {
                   if (w % 5 === 0) {
                     await refreshRamUsage(acc.pkg);
                   }
