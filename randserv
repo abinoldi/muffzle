@@ -311,7 +311,7 @@ function getAppRam(pkg, retryCount = 0) {
   } catch (e) {
     if (retryCount < 3) {
       require('child_process').execSync(`sleep 1`);
-      return getAppRam(pkg, retryCount + 1);
+        return getAppRam(pkg, retryCount + 1);
     }
     return "0 MB";
   }
@@ -332,11 +332,31 @@ async function refreshRamUsage(pkg) {
   return ramValue;
 }
 
+// --- CUSTOM API CHECK ---
+async function checkCustomAPI(username) {
+  try {
+    const url = `http://43.134.116.2:5000/check_status?username=${username}`;
+    // Timeout 5 detik agar script tidak hang jika server API mati/lambat
+    const response = await axios.get(url, { timeout: 5000 });
+    
+    if (response.data && typeof response.data.is_online !== 'undefined') {
+      return { success: true, is_online: response.data.is_online };
+    }
+    return { success: false };
+  } catch (error) {
+    if (DEBUG_MODE) {
+        console.log(`[DEBUG] Custom API Error untuk ${username}: ${error.message}`);
+    }
+    return { success: false };
+  }
+}
+
 async function isUserInGame(pkg, cookie, userId) {
   const now = Date.now();
   const lastLaunch = launchTimers[pkg] || 0;
   const timeSinceLaunch = now - lastLaunch;
   
+  // 1. Cek Cooldown Launching
   if (lastLaunch > 0 && timeSinceLaunch < PRESENCE_CHECK_DELAY) {
     if (DEBUG_MODE) {
       console.log(`[DEBUG] ${pkg}: Still in cooldown (${Math.round(timeSinceLaunch/1000)}s/${PRESENCE_CHECK_DELAY/1000}s)`);
@@ -344,6 +364,21 @@ async function isUserInGame(pkg, cookie, userId) {
     return { isInGame: true, status: "loading", timeRemaining: PRESENCE_CHECK_DELAY - timeSinceLaunch };
   }
   
+  // 2. CEK CUSTOM API FLASK (PRIORITAS UTAMA)
+  const username = accountStates[pkg] ? accountStates[pkg].username : null;
+  if (username) {
+    const customApi = await checkCustomAPI(username);
+    if (customApi.success) {
+      if (customApi.is_online) {
+        return { isInGame: true, status: "in-game", source: "custom-api" };
+      } else {
+        // is_online = false -> Paksa reconnect
+        return { isInGame: false, status: "offline", source: "custom-api" };
+      }
+    }
+  }
+  
+  // 3. FALLBACK: Cek via Roblox API bawaan
   if (cookie && userId) {
     const robloxPresence = await checkRobloxPresence(cookie, userId, pkg);
     if (robloxPresence.isInGame) {
@@ -355,6 +390,7 @@ async function isUserInGame(pkg, cookie, userId) {
     }
   }
   
+  // 4. FALLBACK KEDUA: Cek state Android Foreground/Activity
   try {
     const foregroundApp = execSync(`su -c "dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' | head -1"`, { encoding: 'utf8' }).trim();
     if (foregroundApp.includes(pkg) || foregroundApp.includes("Roblox")) {
@@ -511,13 +547,11 @@ function renderDashboard(cleanCode, statusMessage) {
   const wStatus = Math.floor(safeWidth * 0.20);
   const wRam = 10;
   const wAction = Math.max(5, safeWidth - (wPkg + wUser + wState + wStatus + wRam));
-
   const table = new Table({ 
       head: ['Pkg', 'User', 'State', 'Status', 'RAM', 'Action'], 
       colWidths: [wPkg, wUser, wState, wStatus, wRam, wAction],
       wordWrap: true 
   });
-
   Object.keys(accountStates).sort().forEach(pkg => {
     const s = accountStates[pkg];
     
@@ -530,7 +564,6 @@ function renderDashboard(cleanCode, statusMessage) {
       s.action
     ]);
   });
-
   console.log(table.toString());
 }
 
@@ -564,7 +597,6 @@ async function runSolver(fullCookie, accPkg) {
 
 async function main() {
   initSystem();
-  
   // Menjalankan fitur Anti-Doze Termux agar jaringan stabil
   startNetworkKeepAlive();
 
@@ -572,7 +604,6 @@ async function main() {
   console.log("🚀 Initializing Manager (Continuous Mode)...");
 
   applyPerformanceTweaks();
-
   const packages = getPackages();
   if (!packages.length) { 
     console.log("❌ No Roblox packages found."); 
@@ -639,14 +670,12 @@ async function main() {
 
   const codeDisplay = AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`;
   autoArrangeXML(accounts.map(a => a.pkg));
-
   console.log("\n🚀 Launching valid instances (Fase 1)...");
   for (let i = 0; i < accounts.length; i++) {
     const acc = accounts[i];
     accountStates[acc.pkg].serverStatus = "Solving Captcha ⏳";
     renderDashboard(codeDisplay, `🤖 Mengirim cookie ${acc.username} ke Solver API...`);
     await runSolver(acc.cookie, acc.pkg);
-    
     renderDashboard(codeDisplay, `✅ Solver selesai untuk ${acc.username}. Melakukan Launching...`);
     await sleep(2000); 
 
@@ -705,39 +734,24 @@ async function main() {
 
   console.log("\n🔄 Memasuki Mode Continuous Monitoring...");
   releaseMemory();
-  
   while (true) {
     let anyCrashed = false;
     for (let i = 0; i < accounts.length; i++) {
         const acc = accounts[i];
         renderDashboard(codeDisplay, `🔒 Cek validitas cookie ${acc.username}...`);
         const cookieStatus = await getUserInfo(acc.cookie);
-        
-        // --- MODIFIKASI DIMULAI DI SINI (RESCUE/BYPASS SAAT MONITORING) ---
         if (!cookieStatus.id || cookieStatus.name === "Expired") {
-            renderDashboard(codeDisplay, `⚠️ Akun ${acc.username} Invalid (403). Mencoba Trigger Solver...`);
-            accountStates[acc.pkg].serverStatus = "Solving Captcha (Rescue) ⏳";
+            accountStates[acc.pkg].serverStatus = "❌ Invalid/Banned (403)";
+            accountStates[acc.pkg].isRunning = false;
+            accountStates[acc.pkg].ramUsage = "0 MB";
+            accountStates[acc.pkg].action = "Skipped";
             
-            // Trigger solver di sini sebagai upaya penyelamatan
-            const rescueSuccess = await runSolver(acc.cookie, acc.pkg);
+            renderDashboard(codeDisplay, `⚠️ Akun ${acc.username} Invalid/Banned. Skip auto-reopen.`);
             
-            if (rescueSuccess) {
-                renderDashboard(codeDisplay, `✅ Rescue sukses! Melakukan persiapan restart instance ${acc.username}...`);
-                // Jika rescue berhasil, kita biarkan logic diteruskan ke bawah agar isAppHealthy 
-                // bisa menangani auto-reopen secara normal layaknya akun yang baru crash
-            } else {
-                accountStates[acc.pkg].serverStatus = "❌ Invalid/Banned (Rescue Gagal)";
-                accountStates[acc.pkg].isRunning = false;
-                accountStates[acc.pkg].ramUsage = "0 MB";
-                accountStates[acc.pkg].action = "Skipped";
-                
-                renderDashboard(codeDisplay, `⚠️ Akun ${acc.username} Invalid/Banned permanen. Skip auto-reopen.`);
-                stopPackage(acc.pkg); 
-                await sleep(2000);
-                continue; 
-            }
+            stopPackage(acc.pkg); 
+            await sleep(2000);
+            continue;
         }
-        // --- MODIFIKASI BERAKHIR DI SINI ---
 
         renderDashboard(codeDisplay, `👀 Mengecek status ${acc.username}...`);
         await sleep(2000); 
@@ -764,7 +778,6 @@ async function main() {
               accountStates[acc.pkg].serverStatus = `⚠️ ${currentCrashReason} - Reopening...`;
               accountStates[acc.pkg].ramUsage = "0 MB";
               accountStates[acc.pkg].action = `⚠️ ${currentCrashReason}`;
-              
               renderDashboard(codeDisplay, `⚠️ ${acc.username} ${currentCrashReason} - Melakukan Auto-Reopen...`);
 
               stopPackage(acc.pkg);
