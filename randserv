@@ -54,7 +54,7 @@ const AUTO_RANDOM_CODE = false;
 // --- GRID SETTINGS (XML) ---
 const GRID_COLS = 4;
 const BOX_SIZE = 150;
-const START_OFFSET_Y = 50;
+const START_OFFSET_Y = 80;
 const GAP_X = 5;            
 const GAP_Y = 60;
 
@@ -653,7 +653,7 @@ async function main() {
     preLaunchAppWithMonkey(acc.pkg);
     
     // Tunggu 60 detik untuk setiap aplikasi agar selesai loading
-    let waitTime = 60;
+    let waitTime = 30;
     for (let w = 1; w <= waitTime; w++) {
        renderDashboard(codeDisplay, `⏳ Menunggu app ${acc.username} terbuka... (${w}/${waitTime}s)`);
        await sleep(1000);
