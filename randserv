@@ -59,7 +59,7 @@ const AUTO_RANDOM_CODE = false;
 // --- GRID SETTINGS (XML) ---
 const GRID_COLS = 4;
 const BOX_SIZE = 150;
-const START_OFFSET_Y = 50;
+const START_OFFSET_Y = 80;
 const GAP_X = 5;            
 const GAP_Y = 60;
 
