@@ -59,13 +59,13 @@ const GAP_X = 5;
 const GAP_Y = 60;
 
 // --- TIMING & RETRY ---
-const CHECK_INTERVAL = 60000; 
+const CHECK_INTERVAL = 60000;
 const POST_GAME_WAIT = 15000;
 const MAX_FINAL_RETRIES = 3;
 
 // --- DETEKSI SETTINGS ---
 const MIN_RAM_THRESHOLD = 10; 
-const PRESENCE_CHECK_DELAY = 60000; 
+const PRESENCE_CHECK_DELAY = 60000;
 const DEBUG_MODE = false; 
 
 const TERMUX_PREFIX = "/data/data/com.termux/files/usr/bin";
@@ -75,21 +75,22 @@ const SQLITE_PATH = `${TERMUX_PREFIX}/sqlite3`;
 let lastRestartMap = {};
 let accountStates = {};
 let csrfTokens = {}; 
-let launchTimers = {}; 
+let launchTimers = {};
 
 function startNetworkKeepAlive() {
   setInterval(async () => {
     try {
       await axios.head('https://8.8.8.8', { timeout: 5000 }); 
     } catch (e) {}
-  }, 120000); 
+  }, 120000);
 }
 
 function applyPerformanceTweaks() {
   console.log("\n🚀 Menerapkan Tweak Performa (CPU, Thermal, UI)...");
   try {
       const tweaksCmd = `
-          for i in {0..7}; do
+          for i in {0..7};
+          do
               echo 1 > /sys/devices/system/cpu/cpu$i/online 2>/dev/null;
               echo performance > /sys/devices/system/cpu/cpu$i/cpufreq/scaling_governor 2>/dev/null;
           done;
@@ -118,7 +119,8 @@ function restoreSystemSettings() {
   console.log("\n♻️ Mengembalikan Pengaturan Sistem...");
   try {
       const restoreCmd = `
-          for i in {0..7}; do
+          for i in {0..7};
+          do
               echo schedutil > /sys/devices/system/cpu/cpu$i/cpufreq/scaling_governor 2>/dev/null;
           done;
           start thermal-engine 2>/dev/null;
@@ -147,7 +149,8 @@ function initSystem() {
       process.exit(0);
     }
     try { execSync("termux-wake-lock"); } catch {}
-  } catch (e) { process.exit(1); }
+  } catch (e) { process.exit(1);
+  }
 }
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -292,7 +295,7 @@ function getAppRam(pkg, retryCount = 0) {
   } catch (e) {
     if (retryCount < 3) {
       require('child_process').execSync(`sleep 1`);
-        return getAppRam(pkg, retryCount + 1);
+      return getAppRam(pkg, retryCount + 1);
     }
     return "0 MB";
   }
@@ -318,7 +321,6 @@ async function isUserInGame(pkg, cookie, userId) {
   const now = Date.now();
   const lastLaunch = launchTimers[pkg] || 0;
   const timeSinceLaunch = now - lastLaunch;
-  
   if (lastLaunch > 0 && timeSinceLaunch < PRESENCE_CHECK_DELAY) {
     return { isInGame: true, status: "loading", timeRemaining: PRESENCE_CHECK_DELAY - timeSinceLaunch };
   }
@@ -378,7 +380,6 @@ async function isAppHealthy(pkg, cookie, userId) {
   }
   
   const presenceResult = await isUserInGame(pkg, cookie, userId);
-  
   if (presenceResult.status === "loading") {
     return { 
       healthy: true, 
@@ -431,6 +432,47 @@ function autoArrangeXML(packages) {
     try { execSync(cmd, { stdio: 'ignore' }); } catch (e) {}
   });
   console.log("✅ Posisi XML tersimpan.");
+}
+
+// =========================================================================
+// FUNGSI INJEKSI GFX TWEAKS
+// =========================================================================
+function applyGFXToRoblox(packages) {
+    console.log(`\n🎨 Menerapkan GFX Tweaks (Ultra Low Graphics, 15 FPS) ke semua akun...`);
+    
+    const fflags = {
+        "FFlagDisablePostFx": "True",
+        "FIntGraphicsQualityOverride": "1",
+        "DFIntTextureQualityOverride": "0",
+        "FIntTextureMemoryLimit": "64",
+        "DFFlagDisableMsaa": "True",
+        "FFlagFastGPUShadows": "False",
+        "FIntRenderShadowmapQuality": "0",
+        "FIntRenderShadowIntensity": "0",
+        "DFIntTaskSchedulerTargetFps": "15",
+        "FFlagDebugGraphicsPreferVulkan": "False"
+    };
+  
+    const jsonString = JSON.stringify(fflags);
+  
+    packages.forEach(pkg => {
+        const clientSettingsDir = `/data/data/${pkg}/files/ClientSettings`;
+        const clientSettingsFile = `${clientSettingsDir}/ClientAppSettings.json`;
+  
+        const cmd = `su -c "
+            mkdir -p ${clientSettingsDir};
+            echo '${jsonString}' > ${clientSettingsFile};
+            chmod 777 ${clientSettingsDir};
+            chmod 666 ${clientSettingsFile};
+        "`;
+  
+        try { 
+            execSync(cmd, { stdio: 'ignore' }); 
+        } catch (e) {
+            console.log(`   ❌ Gagal menerapkan GFX ke ${pkg}`);
+        }
+    });
+    console.log("   ✅ GFX Tweaks berhasil dipasang!");
 }
 
 // =========================================================================
@@ -543,11 +585,13 @@ function renderDashboard(cleanCode, statusMessage) {
   const wStatus = Math.floor(safeWidth * 0.20);
   const wRam = 10;
   const wAction = Math.max(5, safeWidth - (wPkg + wUser + wState + wStatus + wRam));
+
   const table = new Table({ 
       head: ['Pkg', 'User', 'State', 'Status', 'RAM', 'Action'], 
       colWidths: [wPkg, wUser, wState, wStatus, wRam, wAction],
       wordWrap: true 
   });
+
   Object.keys(accountStates).sort().forEach(pkg => {
     const s = accountStates[pkg];
     table.push([
@@ -630,7 +674,7 @@ async function main() {
 
   const codes = await fetchLinkCodes();
   if (codes.length === 0) { 
-    console.log("⚠️ No codes found."); 
+    console.log("⚠️ No codes found.");
     process.exit(1);
   }
 
@@ -647,10 +691,8 @@ async function main() {
     } else {
         console.log("\n📜 Available Codes:");
         codes.forEach((code, index) => console.log(`[${index + 1}] ${code}`));
-        
         const selection = await ask("\n👉 Choose Server: ");
         const idx = parseInt(selection) - 1;
-        
         if (isNaN(idx) || idx < 0 || idx >= codes.length) {
             console.log("❌ Invalid selection.");
             process.exit(1);
@@ -660,7 +702,12 @@ async function main() {
   }
 
   const codeDisplay = AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`;
+  
+  // 1. Mengatur Posisi XML
   autoArrangeXML(accounts.map(a => a.pkg));
+
+  // 2. Menerapkan Setelan GFX (Low Texture & 15 FPS)
+  applyGFXToRoblox(accounts.map(a => a.pkg));
 
   // ==========================================
   // FASE 0: PRE-LAUNCH AWAL UNTUK SEMUA APLIKASI
@@ -676,7 +723,6 @@ async function main() {
   console.log("\n🚀 Fase 1: Bypass Captcha & Join via LinkCode...");
   for (let i = 0; i < accounts.length; i++) {
     const acc = accounts[i];
-    
     accountStates[acc.pkg].serverStatus = "Solving Captcha ⏳";
     renderDashboard(codeDisplay, `🤖 Mengirim cookie ${acc.username} ke Solver API...`);
     
@@ -689,13 +735,12 @@ async function main() {
         currentCode = currentCode.split("linkCode=")[1].split("&")[0];
     }
     const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
-    
     let isStable = false;
     let isFirstTry = true; 
 
     while (!isStable) {
       if (!isFirstTry) {
-          stopPackage(acc.pkg); 
+          stopPackage(acc.pkg);
           releaseMemory();
           await sleep(1500); 
           
@@ -741,7 +786,7 @@ async function main() {
         await sleep(2000);
       }
       
-      isFirstTry = false; 
+      isFirstTry = false;
     }
   }
 
@@ -794,10 +839,8 @@ async function main() {
               stopPackage(acc.pkg);
               releaseMemory();
               await sleep(1500);
-
               // 1. PRE-LAUNCH SEBELUM REJOIN
               await ensureAppPreLaunched(acc, codeDisplay);
-
               // 2. BYPASS CAPTCHA SEBELUM JOIN
               accountStates[acc.pkg].serverStatus = "Solving Captcha ⏳";
               renderDashboard(codeDisplay, `🤖 Memproses Solver API untuk ${acc.username}...`);
@@ -808,7 +851,6 @@ async function main() {
                   currentCode = currentCode.split("linkCode=")[1].split("&")[0];
               }
               const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
-              
               // 3. INJECT LINKCODE KETIKA APP SUDAH STANDBY & CAPTCHA SOLVED
               await launchPackage(acc.pkg, finalLaunchUrl);
               launchTimers[acc.pkg] = Date.now(); 
@@ -831,7 +873,7 @@ async function main() {
                       await refreshRamUsage(acc.pkg);
                       crashedDuringRecovery = true;
                       await sleep(3000);
-                      break; 
+                      break;
                   } else if (recoveryHealth.loading) {
                       accountStates[acc.pkg].serverStatus = `⏳ ${recoveryHealth.reason}`;
                   }
