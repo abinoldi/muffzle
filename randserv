@@ -643,20 +643,51 @@ async function main() {
   autoArrangeXML(accounts.map(a => a.pkg));
 
   // ==========================================
-  // FASE 0: PRE-LAUNCH MENGGUNAKAN MONKEY
+  // FASE 0: PRE-LAUNCH MENGGUNAKAN MONKEY (DENGAN PENGECEKAN)
   // ==========================================
   console.log("\n🚀 Fase 0: Pre-launch (Monkey) untuk semua aplikasi...");
   for (let i = 0; i < accounts.length; i++) {
     const acc = accounts[i];
-    renderDashboard(codeDisplay, `🐒 Pre-launch ${acc.pkg} dengan Monkey...`);
-    
-    preLaunchAppWithMonkey(acc.pkg);
-    
-    // Tunggu 60 detik untuk setiap aplikasi agar selesai loading
-    let waitTime = 30;
-    for (let w = 1; w <= waitTime; w++) {
-       renderDashboard(codeDisplay, `⏳ Menunggu app ${acc.username} terbuka... (${w}/${waitTime}s)`);
-       await sleep(1000);
+    let isPreLaunchSuccess = false;
+
+    while (!isPreLaunchSuccess) {
+      accountStates[acc.pkg].serverStatus = "Pre-launching 🐒";
+      renderDashboard(codeDisplay, `🐒 Pre-launch ${acc.pkg} dengan Monkey...`);
+      
+      preLaunchAppWithMonkey(acc.pkg);
+      
+      let waitTime = 30;
+      let crashedDuringPreLaunch = false;
+
+      for (let w = 1; w <= waitTime; w++) {
+         renderDashboard(codeDisplay, `⏳ Menunggu app ${acc.username} terbuka... (${w}/${waitTime}s)`);
+         await sleep(1000);
+
+         // Cek status proses setiap 5 detik agar tidak membebani CPU HP
+         if (w % 5 === 0) {
+           const isRunning = isAppRunning(acc.pkg);
+           const ramVal = parseFloat(getAppRam(acc.pkg)) || 0;
+           
+           // Jika proses tiba-tiba mati atau RAM drop (indikasi crash/force close)
+           if (!isRunning || (ramVal > 0 && ramVal < MIN_RAM_THRESHOLD)) {
+              renderDashboard(codeDisplay, `⚠️ ${acc.username} Crash saat Pre-launch (RAM: ${ramVal}MB)! Mengulangi...`);
+              crashedDuringPreLaunch = true;
+              break; // Langsung potong waktu tunggu, tidak perlu menunggu sampai 60 detik
+           }
+         }
+      }
+
+      if (!crashedDuringPreLaunch) {
+          isPreLaunchSuccess = true;
+          accountStates[acc.pkg].serverStatus = "Standby ✅";
+          renderDashboard(codeDisplay, `✅ App ${acc.username} sukses standby di background!`);
+          await sleep(1500);
+      } else {
+          // Bersihkan sisa proses yang crash sebelum mengulang pre-launch
+          stopPackage(acc.pkg);
+          releaseMemory();
+          await sleep(2000);
+      }
     }
   }
 
