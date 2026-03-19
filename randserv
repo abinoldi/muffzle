@@ -59,13 +59,13 @@ const GAP_X = 5;
 const GAP_Y = 60;
 
 // --- TIMING & RETRY ---
-const CHECK_INTERVAL = 30000; 
+const CHECK_INTERVAL = 60000; 
 const POST_GAME_WAIT = 15000;
 const MAX_FINAL_RETRIES = 3;
 
 // --- DETEKSI SETTINGS ---
 const MIN_RAM_THRESHOLD = 10; 
-const PRESENCE_CHECK_DELAY = 30000; 
+const PRESENCE_CHECK_DELAY = 60000; 
 const DEBUG_MODE = false; 
 
 const TERMUX_PREFIX = "/data/data/com.termux/files/usr/bin";
@@ -313,21 +313,7 @@ async function refreshRamUsage(pkg) {
   return ramValue;
 }
 
-// --- CUSTOM API CHECK ---
-async function checkCustomAPI(username) {
-  try {
-    const url = `http://43.134.116.2:5000/check_status?username=${username}`;
-    const response = await axios.get(url, { timeout: 5000 });
-    
-    if (response.data && typeof response.data.is_online !== 'undefined') {
-      return { success: true, is_online: response.data.is_online };
-    }
-    return { success: false };
-  } catch (error) {
-    return { success: false };
-  }
-}
-
+// Kembalikan ke original in-game API check
 async function isUserInGame(pkg, cookie, userId) {
   const now = Date.now();
   const lastLaunch = launchTimers[pkg] || 0;
@@ -337,18 +323,7 @@ async function isUserInGame(pkg, cookie, userId) {
     return { isInGame: true, status: "loading", timeRemaining: PRESENCE_CHECK_DELAY - timeSinceLaunch };
   }
   
-  const username = accountStates[pkg] ? accountStates[pkg].username : null;
-  if (username) {
-    const customApi = await checkCustomAPI(username);
-    if (customApi.success) {
-      if (customApi.is_online) {
-        return { isInGame: true, status: "in-game", source: "custom-api" };
-      } else {
-        return { isInGame: false, status: "offline", source: "custom-api" };
-      }
-    }
-  }
-  
+  // 1. Cek via Roblox API bawaan
   if (cookie && userId) {
     const robloxPresence = await checkRobloxPresence(cookie, userId, pkg);
     if (robloxPresence.isInGame) {
@@ -360,6 +335,7 @@ async function isUserInGame(pkg, cookie, userId) {
     }
   }
   
+  // 2. FALLBACK: Cek state Android Foreground/Activity
   try {
     const foregroundApp = execSync(`su -c "dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' | head -1"`, { encoding: 'utf8' }).trim();
     if (foregroundApp.includes(pkg) || foregroundApp.includes("Roblox")) {
@@ -458,8 +434,7 @@ function autoArrangeXML(packages) {
 }
 
 // =========================================================================
-// FUNGSI BARU: PRE-LAUNCH DENGAN MONKEY + PENGECEKAN STATUS
-// Memastikan app terbuka dan tidak crash sebelum dilanjutkan
+// PRE-LAUNCH DENGAN MONKEY + PENGECEKAN STATUS
 // =========================================================================
 function preLaunchAppWithMonkey(pkg) {
   try {
@@ -479,23 +454,21 @@ async function ensureAppPreLaunched(acc, codeDisplay) {
     
     preLaunchAppWithMonkey(acc.pkg);
     
-    let waitTime = 30; // Waktu tunggu maksimal 60 detik
+    let waitTime = 30; 
     let crashedDuringPreLaunch = false;
 
     for (let w = 1; w <= waitTime; w++) {
        renderDashboard(codeDisplay, `⏳ Menunggu app ${acc.username} terbuka... (${w}/${waitTime}s)`);
        await sleep(1000);
 
-       // Cek setiap 5 detik agar efisien
        if (w % 5 === 0) {
          const isRunning = isAppRunning(acc.pkg);
          const ramVal = parseFloat(getAppRam(acc.pkg)) || 0;
          
-         // Jika aplikasi mati (PID hilang) atau RAM sangat kecil (nge-bug)
          if (!isRunning || (ramVal > 0 && ramVal < MIN_RAM_THRESHOLD)) {
             renderDashboard(codeDisplay, `⚠️ ${acc.username} Crash saat Pre-launch (RAM: ${ramVal}MB)! Mengulangi...`);
             crashedDuringPreLaunch = true;
-            break; // Stop for-loop, tidak usah tunggu sisa 60 detiknya
+            break; 
          }
        }
     }
@@ -506,7 +479,6 @@ async function ensureAppPreLaunched(acc, codeDisplay) {
         renderDashboard(codeDisplay, `✅ App ${acc.username} sukses standby di background!`);
         await sleep(1500);
     } else {
-        // Bersihkan RAM dan proses sebelum mengulang loop prelaunch
         stopPackage(acc.pkg);
         releaseMemory();
         await sleep(2000);
@@ -559,7 +531,7 @@ function renderDashboard(cleanCode, statusMessage) {
   console.clear();
   const stats = getSystemStats();
   console.log(`📱 SYSTEM: CPU ${stats.cpu} | RAM ${stats.ram} | UP ${stats.uptime} | BOOSTER: ON 🔥`);
-  console.log(`📏 MODE: XML GRID (${GRID_COLS} cols) | DETEKSI: CUSTOM API (Priority)`);
+  console.log(`📏 MODE: XML GRID (${GRID_COLS} cols) | DETEKSI: ROBLOX API (1m cooldown)`);
   console.log(`📊 STATUS: ${statusMessage} | Mode: CONTINUOUS | Code: ${cleanCode}`);
   
   const termWidth = process.stdout.columns || 80;
@@ -719,7 +691,7 @@ async function main() {
     const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
     
     let isStable = false;
-    let isFirstTry = true; // Flag agar tidak prelaunch ganda di percobaan pertama
+    let isFirstTry = true; 
 
     while (!isStable) {
       if (!isFirstTry) {
@@ -727,7 +699,6 @@ async function main() {
           releaseMemory();
           await sleep(1500); 
           
-          // PRE-LAUNCH LAGI JIKA CRASH SAAT STABILIZING FASE 1
           await ensureAppPreLaunched(acc, codeDisplay);
       }
 
