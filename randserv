@@ -24,21 +24,16 @@ const axios = require("axios");
 const axiosRetry = require("axios-retry").default || require("axios-retry");
 
 // --- NETWORK STABILITY TWEAKS ---
-// 1. Keep-Alive: Menggunakan ulang koneksi TCP untuk mencegah RTO dan mempercepat request
 axios.defaults.httpAgent = new http.Agent({ keepAlive: true, maxSockets: 50 });
 axios.defaults.httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 50 });
-
-// 2. Global Timeout: Mencegah script hang selamanya (15 detik)
 axios.defaults.timeout = 15000;
 
-// 3. Auto-Retry: Otomatis coba lagi jika ada packet loss atau RTO
 axiosRetry(axios, {
   retries: 3, 
   retryDelay: (retryCount) => {
-    return retryCount * 2000; // Delay 2s, 4s, 6s
+    return retryCount * 2000; 
   },
   retryCondition: (error) => {
-    // Retry jika error jaringan atau timeout
     return axiosRetry.isNetworkOrIdempotentRequestError(error) || error.code === 'ECONNABORTED';
   }
 });
@@ -59,19 +54,19 @@ const AUTO_RANDOM_CODE = false;
 // --- GRID SETTINGS (XML) ---
 const GRID_COLS = 4;
 const BOX_SIZE = 150;
-const START_OFFSET_Y = 80;
+const START_OFFSET_Y = 50;
 const GAP_X = 5;            
 const GAP_Y = 60;
 
 // --- TIMING & RETRY ---
-const CHECK_INTERVAL = 60000; // 1 menit
+const CHECK_INTERVAL = 60000; 
 const POST_GAME_WAIT = 15000;
 const MAX_FINAL_RETRIES = 3;
 
 // --- DETEKSI SETTINGS ---
-const MIN_RAM_THRESHOLD = 10; // MB - Jika RAM di bawah ini, langsung rejoin
-const PRESENCE_CHECK_DELAY = 60000; // 1 menit - Tunggu sebelum cek presence pertama
-const DEBUG_MODE = false; // Set ke true untuk melihat log deteksi
+const MIN_RAM_THRESHOLD = 10; 
+const PRESENCE_CHECK_DELAY = 60000; 
+const DEBUG_MODE = false; 
 
 const TERMUX_PREFIX = "/data/data/com.termux/files/usr/bin";
 const NODE_PATH = `${TERMUX_PREFIX}/node`;
@@ -79,22 +74,17 @@ const SQLITE_PATH = `${TERMUX_PREFIX}/sqlite3`;
 
 let lastRestartMap = {};
 let accountStates = {};
-let csrfTokens = {}; // Menyimpan CSRF token per akun
-let launchTimers = {}; // Menyimpan waktu launch per akun
+let csrfTokens = {}; 
+let launchTimers = {}; 
 
-// --- ANTI-DOZE TERMUX ---
-// Mencegah Android mematikan radio jaringan saat layar mati/background
 function startNetworkKeepAlive() {
   setInterval(async () => {
     try {
       await axios.head('https://8.8.8.8', { timeout: 5000 }); 
-    } catch (e) {
-      // Abaikan jika gagal, tujuannya hanya memancing aktivitas jaringan
-    }
-  }, 120000); // Tembak ping ringan setiap 2 menit
+    } catch (e) {}
+  }, 120000); 
 }
 
-// --- PERFORMANCE BOOSTER ---
 function applyPerformanceTweaks() {
   console.log("\n🚀 Menerapkan Tweak Performa (CPU, Thermal, UI)...");
   try {
@@ -118,14 +108,14 @@ function applyPerformanceTweaks() {
           settings put global animator_duration_scale 0 2>/dev/null;
       `;
       execSync(`su -c '${tweaksCmd}'`, { stdio: 'ignore' });
-      console.log("   ✅ Tweak Performa Aktif! (HP mungkin akan terasa lebih hangat)");
+      console.log("   ✅ Tweak Performa Aktif!");
   } catch (e) {
       console.log("   ❌ Gagal menerapkan tweak performa: Pastikan script berjalan dengan Root.");
   }
 }
 
 function restoreSystemSettings() {
-  console.log("\n♻️ Mengembalikan Pengaturan Sistem (Pendingin & Animasi)...");
+  console.log("\n♻️ Mengembalikan Pengaturan Sistem...");
   try {
       const restoreCmd = `
           for i in {0..7}; do
@@ -138,7 +128,7 @@ function restoreSystemSettings() {
       `;
       execSync(`su -c '${restoreCmd}'`, { stdio: 'ignore' });
       execSync('termux-wake-unlock', { stdio: 'ignore' });
-      console.log("   ✅ Sistem telah dikembalikan ke kondisi normal.");
+      console.log("   ✅ Sistem telah dikembalikan.");
   } catch (e) {}
 }
 
@@ -237,11 +227,6 @@ async function checkRobloxPresence(cookie, userId, pkg) {
     );
 
     const presence = presenceResponse.data.userPresences[0];
-    
-    if (DEBUG_MODE) {
-      console.log(`[DEBUG] ${pkg}: Roblox Presence Type: ${presence.userPresenceType}`);
-    }
-    
     return {
       isInGame: presence.userPresenceType === 2,
       presenceType: presence.userPresenceType,
@@ -268,12 +253,8 @@ async function checkRobloxPresence(cookie, userId, pkg) {
           isInGame: presence.userPresenceType === 2,
           presenceType: presence.userPresenceType
         };
-      } catch (retryError) {
-        if (DEBUG_MODE) console.log(`[DEBUG] ${pkg}: Retry failed: ${retryError.message}`);
-      }
+      } catch (retryError) {}
     }
-    
-    if (DEBUG_MODE) console.log(`[DEBUG] ${pkg}: Presence check failed: ${error.message}`);
     return { isInGame: false, presenceType: 0 };
   }
 }
@@ -336,7 +317,6 @@ async function refreshRamUsage(pkg) {
 async function checkCustomAPI(username) {
   try {
     const url = `http://43.134.116.2:5000/check_status?username=${username}`;
-    // Timeout 5 detik agar script tidak hang jika server API mati/lambat
     const response = await axios.get(url, { timeout: 5000 });
     
     if (response.data && typeof response.data.is_online !== 'undefined') {
@@ -344,9 +324,6 @@ async function checkCustomAPI(username) {
     }
     return { success: false };
   } catch (error) {
-    if (DEBUG_MODE) {
-        console.log(`[DEBUG] Custom API Error untuk ${username}: ${error.message}`);
-    }
     return { success: false };
   }
 }
@@ -356,15 +333,10 @@ async function isUserInGame(pkg, cookie, userId) {
   const lastLaunch = launchTimers[pkg] || 0;
   const timeSinceLaunch = now - lastLaunch;
   
-  // 1. Cek Cooldown Launching
   if (lastLaunch > 0 && timeSinceLaunch < PRESENCE_CHECK_DELAY) {
-    if (DEBUG_MODE) {
-      console.log(`[DEBUG] ${pkg}: Still in cooldown (${Math.round(timeSinceLaunch/1000)}s/${PRESENCE_CHECK_DELAY/1000}s)`);
-    }
     return { isInGame: true, status: "loading", timeRemaining: PRESENCE_CHECK_DELAY - timeSinceLaunch };
   }
   
-  // 2. CEK CUSTOM API FLASK (PRIORITAS UTAMA)
   const username = accountStates[pkg] ? accountStates[pkg].username : null;
   if (username) {
     const customApi = await checkCustomAPI(username);
@@ -372,13 +344,11 @@ async function isUserInGame(pkg, cookie, userId) {
       if (customApi.is_online) {
         return { isInGame: true, status: "in-game", source: "custom-api" };
       } else {
-        // is_online = false -> Paksa reconnect
         return { isInGame: false, status: "offline", source: "custom-api" };
       }
     }
   }
   
-  // 3. FALLBACK: Cek via Roblox API bawaan
   if (cookie && userId) {
     const robloxPresence = await checkRobloxPresence(cookie, userId, pkg);
     if (robloxPresence.isInGame) {
@@ -390,7 +360,6 @@ async function isUserInGame(pkg, cookie, userId) {
     }
   }
   
-  // 4. FALLBACK KEDUA: Cek state Android Foreground/Activity
   try {
     const foregroundApp = execSync(`su -c "dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' | head -1"`, { encoding: 'utf8' }).trim();
     if (foregroundApp.includes(pkg) || foregroundApp.includes("Roblox")) {
@@ -433,9 +402,6 @@ async function isAppHealthy(pkg, cookie, userId) {
   }
   
   const presenceResult = await isUserInGame(pkg, cookie, userId);
-  if (DEBUG_MODE) {
-    console.log(`[DEBUG] ${pkg}: RAM=${ramValue}MB, Presence=${presenceResult.status}, Source=${presenceResult.source}`);
-  }
   
   if (presenceResult.status === "loading") {
     return { 
@@ -488,7 +454,17 @@ function autoArrangeXML(packages) {
     "`;
     try { execSync(cmd, { stdio: 'ignore' }); } catch (e) {}
   });
-  console.log("✅ Posisi XML tersimpan dan Grafis dipaksa rata kiri.");
+  console.log("✅ Posisi XML tersimpan.");
+}
+
+// FUNGSI BARU: Pre-launch menggunakan monkey
+function preLaunchAppWithMonkey(pkg) {
+  try {
+    execSync(`su -c "monkey -p ${pkg} -c android.intent.category.LAUNCHER 1"`, { stdio: 'ignore' });
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 async function launchPackage(pkg, url) {
@@ -535,7 +511,7 @@ function renderDashboard(cleanCode, statusMessage) {
   console.clear();
   const stats = getSystemStats();
   console.log(`📱 SYSTEM: CPU ${stats.cpu} | RAM ${stats.ram} | UP ${stats.uptime} | BOOSTER: ON 🔥`);
-  console.log(`📏 MODE: XML GRID (${GRID_COLS} cols) | GAP Y: ${GAP_Y}px | DETEKSI: ROBLOX API (1m cooldown)`);
+  console.log(`📏 MODE: XML GRID (${GRID_COLS} cols) | DETEKSI: CUSTOM API (Priority)`);
   console.log(`📊 STATUS: ${statusMessage} | Mode: CONTINUOUS | Code: ${cleanCode}`);
   
   const termWidth = process.stdout.columns || 80;
@@ -554,7 +530,6 @@ function renderDashboard(cleanCode, statusMessage) {
   });
   Object.keys(accountStates).sort().forEach(pkg => {
     const s = accountStates[pkg];
-    
     table.push([
       pkg.replace("com.roblox.client", "...client"), 
       s.username.substring(0, 12),
@@ -579,7 +554,7 @@ async function runSolver(fullCookie, accPkg) {
     try {
         const res = await axios.get(SOLVER_API_URL, {
             params: { cookie: fullCookie, yeskey: YES_KEY },
-            timeout: 900000 // 15 menit khusus untuk solver
+            timeout: 900000 
         });
         accountStates[accPkg].serverStatus = "✅ Solver Passed";
         return true;
@@ -597,7 +572,6 @@ async function runSolver(fullCookie, accPkg) {
 
 async function main() {
   initSystem();
-  // Menjalankan fitur Anti-Doze Termux agar jaringan stabil
   startNetworkKeepAlive();
 
   console.clear();
@@ -634,8 +608,6 @@ async function main() {
     process.exit(0);
   }
 
-  console.log(`\n✅ Loaded ${accounts.length} valid accounts.`);
-
   const codes = await fetchLinkCodes();
   if (codes.length === 0) { 
     console.log("⚠️ No codes found."); 
@@ -651,7 +623,6 @@ async function main() {
     }
 
     if (selectedIdx >= 0 && selectedIdx < codes.length) {
-        console.log(`\n✅ Auto-selecting Server [${selectedIdx + 1}] via arguments.`);
         cleanCode = codes[selectedIdx];
     } else {
         console.log("\n📜 Available Codes:");
@@ -670,13 +641,37 @@ async function main() {
 
   const codeDisplay = AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`;
   autoArrangeXML(accounts.map(a => a.pkg));
-  console.log("\n🚀 Launching valid instances (Fase 1)...");
+
+  // ==========================================
+  // FASE 0: PRE-LAUNCH MENGGUNAKAN MONKEY
+  // ==========================================
+  console.log("\n🚀 Fase 0: Pre-launch (Monkey) untuk semua aplikasi...");
   for (let i = 0; i < accounts.length; i++) {
     const acc = accounts[i];
+    renderDashboard(codeDisplay, `🐒 Pre-launch ${acc.pkg} dengan Monkey...`);
+    
+    preLaunchAppWithMonkey(acc.pkg);
+    
+    // Tunggu 60 detik untuk setiap aplikasi agar selesai loading
+    let waitTime = 60;
+    for (let w = 1; w <= waitTime; w++) {
+       renderDashboard(codeDisplay, `⏳ Menunggu app ${acc.username} terbuka... (${w}/${waitTime}s)`);
+       await sleep(1000);
+    }
+  }
+
+  // ==========================================
+  // FASE 1: BYPASS CAPTCHA & INJECT LINKCODE
+  // ==========================================
+  console.log("\n🚀 Fase 1: Bypass Captcha & Join via LinkCode...");
+  for (let i = 0; i < accounts.length; i++) {
+    const acc = accounts[i];
+    
     accountStates[acc.pkg].serverStatus = "Solving Captcha ⏳";
     renderDashboard(codeDisplay, `🤖 Mengirim cookie ${acc.username} ke Solver API...`);
+    
     await runSolver(acc.cookie, acc.pkg);
-    renderDashboard(codeDisplay, `✅ Solver selesai untuk ${acc.username}. Melakukan Launching...`);
+    renderDashboard(codeDisplay, `✅ Solver selesai untuk ${acc.username}. Injecting LinkCode...`);
     await sleep(2000); 
 
     let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
@@ -684,17 +679,32 @@ async function main() {
         currentCode = currentCode.split("linkCode=")[1].split("&")[0];
     }
     const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
+    
     let isStable = false;
+    let isFirstTry = true; // Penanda percobaan pertama (dari Fase 0)
 
     while (!isStable) {
-      stopPackage(acc.pkg); 
-      releaseMemory();
-      await sleep(1500); 
+      if (!isFirstTry) {
+          // Jika ini bukan percobaan pertama (artinya sempat crash), force stop dulu
+          stopPackage(acc.pkg); 
+          releaseMemory();
+          await sleep(1500); 
+          
+          // Re-Pre-launch menggunakan monkey untuk retry
+          renderDashboard(codeDisplay, `🐒 Re-Pre-launch ${acc.username} dengan Monkey (Recovery)...`);
+          preLaunchAppWithMonkey(acc.pkg);
+          
+          for (let w = 1; w <= 60; w++) {
+             renderDashboard(codeDisplay, `⏳ Menunggu app re-loading... (${w}/60s)`);
+             await sleep(1000);
+          }
+      }
 
+      // Inject LinkCode menggunakan Am Start
       await launchPackage(acc.pkg, finalLaunchUrl);
       lastRestartMap[acc.pkg] = Date.now();
       accountStates[acc.pkg].isRunning = true;
-      accountStates[acc.pkg].serverStatus = "Launching...";
+      accountStates[acc.pkg].serverStatus = "Joining Game...";
       
       await sleep(3000);
       await protectProcessFromLMK(acc.pkg);
@@ -729,9 +739,15 @@ async function main() {
         isStable = true; 
         await sleep(2000);
       }
+      
+      // Matikan penanda first try agar loop berikutnya melakukan force-stop & re-launch jika crash
+      isFirstTry = false; 
     }
   }
 
+  // ==========================================
+  // FASE 2: CONTINUOUS MONITORING
+  // ==========================================
   console.log("\n🔄 Memasuki Mode Continuous Monitoring...");
   releaseMemory();
   while (true) {
@@ -745,9 +761,6 @@ async function main() {
             accountStates[acc.pkg].isRunning = false;
             accountStates[acc.pkg].ramUsage = "0 MB";
             accountStates[acc.pkg].action = "Skipped";
-            
-            renderDashboard(codeDisplay, `⚠️ Akun ${acc.username} Invalid/Banned. Skip auto-reopen.`);
-            
             stopPackage(acc.pkg); 
             await sleep(2000);
             continue;
@@ -766,7 +779,6 @@ async function main() {
           } else {
             accountStates[acc.pkg].serverStatus = "In Game 🎮 (Monitoring)";
           }
-          
           accountStates[acc.pkg].action = `✅ ${healthCheck.ram}MB`;
         } else {
           anyCrashed = true;
@@ -778,11 +790,19 @@ async function main() {
               accountStates[acc.pkg].serverStatus = `⚠️ ${currentCrashReason} - Reopening...`;
               accountStates[acc.pkg].ramUsage = "0 MB";
               accountStates[acc.pkg].action = `⚠️ ${currentCrashReason}`;
-              renderDashboard(codeDisplay, `⚠️ ${acc.username} ${currentCrashReason} - Melakukan Auto-Reopen...`);
 
               stopPackage(acc.pkg);
               releaseMemory();
               await sleep(1500);
+
+              // Buka aplikasi dengan monkey terlebih dahulu saat recovery
+              renderDashboard(codeDisplay, `🐒 Re-Pre-launch ${acc.username} dengan Monkey (Recovery)...`);
+              preLaunchAppWithMonkey(acc.pkg);
+              
+              for(let w = 1; w <= 60; w++) {
+                 renderDashboard(codeDisplay, `⏳ Menunggu app re-loading... (${w}/60s)`);
+                 await sleep(1000);
+              }
 
               accountStates[acc.pkg].serverStatus = "Solving Captcha ⏳";
               renderDashboard(codeDisplay, `🤖 Memproses Solver API untuk ${acc.username}...`);
@@ -805,7 +825,7 @@ async function main() {
                   if (w % 5 === 0) {
                     await refreshRamUsage(acc.pkg);
                   }
-                  renderDashboard(codeDisplay, `⏳ Menunggu ${acc.username} re-open... (${w}/60s) 🛡️ Shield ON`);
+                  renderDashboard(codeDisplay, `⏳ Stabilizing ${acc.username}... (${w}/60s) 🛡️ Shield ON`);
                   await sleep(1000);
 
                   const recoveryHealth = await isAppHealthy(acc.pkg, acc.cookie, acc.userId);
@@ -813,7 +833,6 @@ async function main() {
                       currentCrashReason = recoveryHealth.reason;
                       accountStates[acc.pkg].serverStatus = `Crash: ${currentCrashReason}`;
                       await refreshRamUsage(acc.pkg);
-                      renderDashboard(codeDisplay, `⚠️ ${acc.username} ${currentCrashReason} di detik ${w}! Membuka ulang...`);
                       crashedDuringRecovery = true;
                       await sleep(3000);
                       break; 
