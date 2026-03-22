@@ -1,12 +1,13 @@
 -- ======================================================
 -- AUTO ACCEPT TRADE & TELEPORT (ADVANCED HOOK MODE)
--- 100% NO VIM | RANDOM DELAY 3-4s | ANTI-AFK | AUTO-DISCONNECT
+-- 100% NO VIM | RANDOM DELAY 3-4s | ANTI-AFK | AUTO-DISCONNECT | WALK ON WATER
 -- ======================================================
 
--- // 0. KONFIGURASI TELEPORT //
+-- // 0. KONFIGURASI TELEPORT & FITUR TAMBAHAN //
 _G.FishItConfig = {
     -- Pilih mode teleportasi: "Ancient Ruin" atau "Player"
     TeleportMode = "Player", 
+    WalkOnWater = true, -- Ubah ke false jika ingin mematikan fitur berjalan di atas air
     
     Locations = {
         ["Ancient Ruin"] = {
@@ -17,10 +18,11 @@ _G.FishItConfig = {
 }
 
 local lastTradeTime = tick() -- Mencatat waktu awal saat script dijalankan
-local IDLE_LIMIT = 30 -- Batas waktu 30 detik (30 detik)
+local IDLE_LIMIT = 300 -- Saya sesuaikan menjadi 300 (5 menit), sebelumnya 30 detik tapi deskripsinya 5 menit.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 ---------------------------------------------------------
@@ -107,7 +109,7 @@ if modulesLoaded and PromptController and Promise then
                 lastTradeTime = tick()
                 
                 -- JEDA ACAK 3.0 HINGGA 4.0 DETIK
-                local randomDelay = math.random(20, 21) / 10
+                local randomDelay = math.random(30, 40) / 10 -- Diperbaiki dari 2.0-2.1 menjadi 3.0-4.0
                 
                 warn("⏳ [HOOK] Trade masuk! Menunggu " .. randomDelay .. " detik agar natural...")
                 
@@ -155,3 +157,51 @@ task.spawn(function()
         end
     end
 end)
+
+-- // 5. WALK ON WATER //
+if _G.FishItConfig.WalkOnWater then
+    task.spawn(function()
+        local waterPlatform = Instance.new("Part")
+        waterPlatform.Name = "JesusPlatform"
+        waterPlatform.Size = Vector3.new(5, 1, 5) -- Ukuran pijakan 5x5
+        waterPlatform.Transparency = 1 -- Transparan (ubah ke 0.5 jika ingin melihat pijakannya)
+        waterPlatform.Anchored = true
+        waterPlatform.CanCollide = false
+        waterPlatform.Parent = workspace
+
+        local rayParams = RaycastParams.new()
+        rayParams.FilterType = Enum.RaycastFilterType.Exclude
+        rayParams.IgnoreWater = false -- PENTING: Jangan hiraukan air agar raycast bisa mendeteksi air
+
+        RunService.Heartbeat:Connect(function()
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
+                -- Jangan biarkan raycast menabrak karakter atau platform itu sendiri
+                rayParams.FilterDescendantsInstances = {char, waterPlatform}
+                local hrp = char.HumanoidRootPart
+                
+                -- Tembakkan raycast dari 2 stud di atas pemain ke 10 stud ke bawah
+                local rayOrigin = hrp.Position + Vector3.new(0, 2, 0)
+                local rayDirection = Vector3.new(0, -10, 0)
+                local result = workspace:Raycast(rayOrigin, rayDirection, rayParams)
+
+                -- Jika hasil tembakan mengenai material air
+                if result and result.Material == Enum.Material.Water then
+                    -- Pindahkan platform tepat di bawah kaki / permukaan air
+                    waterPlatform.CFrame = CFrame.new(result.Position - Vector3.new(0, 0.4, 0))
+                    waterPlatform.CanCollide = true
+                    
+                    -- Jika pemain sudah terlanjur animasi berenang, paksa berdiri agar tidak nge-glitch
+                    if char.Humanoid:GetState() == Enum.HumanoidStateType.Swimming then
+                        char.Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+                    end
+                else
+                    -- Sembunyikan dan nonaktifkan colliison jika tidak di atas air
+                    waterPlatform.CFrame = CFrame.new(0, -50000, 0)
+                    waterPlatform.CanCollide = false
+                end
+            end
+        end)
+        print("🌊 [SUCCESS] Fitur Walk on Water Aktif!")
+    end)
+end
