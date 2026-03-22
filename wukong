@@ -5,8 +5,8 @@
 
 -- // 0. KONFIGURASI TELEPORT //
 _G.FishItConfig = {
-    -- Pilih mode teleportasi: "Ancient Ruin" atau "Random Player"
-    TeleportMode = "Random Player", 
+    -- Pilih mode teleportasi: "Ancient Ruin" atau "Player"
+    TeleportMode = "Player", 
     
     Locations = {
         ["Ancient Ruin"] = {
@@ -16,8 +16,8 @@ _G.FishItConfig = {
     }
 }
 
-local lastTradeTime = tick() 
-local IDLE_LIMIT = 30
+local lastTradeTime = tick() -- Mencatat waktu awal saat script dijalankan
+local IDLE_LIMIT = 30 -- Batas waktu 30 detik (30 detik)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -27,59 +27,62 @@ local LocalPlayer = Players.LocalPlayer
 print("--- 🤖 MENGINISIALISASI SCRIPT ---")
 ---------------------------------------------------------
 
--- // 1. FUNGSI TELEPORT SAAT MASUK SERVER (ONE-TIME) //
-local function teleportToRandomPlayer()
-    local myChar = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    local myHRP = myChar:WaitForChild("HumanoidRootPart", 10)
-    
-    if not myHRP then return end
-
-    local playersList = Players:GetPlayers()
-    local validTargets = {}
-    
-    for _, p in ipairs(playersList) do
-        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            table.insert(validTargets, p)
-        end
-    end
-    
-    if #validTargets > 0 then
-        local targetPlayer = validTargets[math.random(1, #validTargets)]
-        local targetHRP = targetPlayer.Character.HumanoidRootPart
+-- // 1. FUNGSI TELEPORT (Berdasarkan Config) //
+task.spawn(function()
+    while task.wait(10) do -- Looping terus-menerus dengan delay 10 detik
+        local myChar = LocalPlayer.Character
         
-        local success, err = pcall(function() 
-            myHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 0, 3) 
-        end)
-        
-        if success then
-            print("📍 [STARTUP] Berhasil teleport ke random player: " .. targetPlayer.Name)
-        else
-            warn("⚠️ [STARTUP] Gagal teleport: " .. tostring(err))
-        end
-    else
-        warn("⚠️ [STARTUP] Tidak ada player lain di server yang siap. Menunggu 5 detik...")
-        task.wait(5)
-        teleportToRandomPlayer()
-    end
-end
-
--- Eksekusi Teleportasi
-if _G.FishItConfig.TeleportMode == "Random Player" then
-    task.spawn(teleportToRandomPlayer)
-    
-elseif _G.FishItConfig.TeleportMode == "Ancient Ruin" then
-    task.spawn(function()
-        while task.wait(10) do 
-            local myChar = LocalPlayer.Character
-            if myChar and myChar:FindFirstChild("HumanoidRootPart") then
+        -- Pastikan karakter kita ada dan memiliki HumanoidRootPart
+        if myChar and myChar:FindFirstChild("HumanoidRootPart") then
+            local myHRP = myChar.HumanoidRootPart
+            local mode = _G.FishItConfig.TeleportMode
+            
+            if mode == "Ancient Ruin" then
+                -- Teleport ke lokasi statis Ancient Ruin
                 local locData = _G.FishItConfig.Locations["Ancient Ruin"]
-                pcall(function()
-                    myChar.HumanoidRootPart.CFrame = CFrame.new(locData.Pos, locData.Pos + locData.Look)
+                local success, err = pcall(function()
+                    -- Membuat CFrame berdasarkan Posisi dan arah pandang (Look Vector)
+                    myHRP.CFrame = CFrame.new(locData.Pos, locData.Pos + locData.Look)
                 end)
+                
+                if success then
+                    print("📍 [LOOP] Teleportasi selesai ke: Ancient Ruin")
+                end
+                
+            elseif mode == "Player" then
+                -- Teleport ke Random Player
+                local playersList = Players:GetPlayers()
+                local validTargets = {}
+                
+                -- Memfilter player: Kecualikan diri sendiri dan pastikan mereka punya karakter
+                for _, p in ipairs(playersList) do
+                    if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                        table.insert(validTargets, p)
+                    end
+                end
+                
+                -- Jika ada player lain di server yang valid
+                if #validTargets > 0 then
+                    -- Pilih satu player secara acak
+                    local targetPlayer = validTargets[math.random(1, #validTargets)]
+                    local targetHRP = targetPlayer.Character.HumanoidRootPart
+                    
+                    -- Teleport dengan pengamanan pcall agar tidak error jika target tiba-tiba hilang
+                    local success, err = pcall(function() 
+                        -- Teleport ke player tersebut dengan offset 3 stud ke belakang
+                        myHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 0, 3) 
+                    end)
+                    
+                    if success then
+                        print("📍 [LOOP] Teleportasi selesai ke player: " .. targetPlayer.Name)
+                    end
+                else
+                    warn("⚠️ [LOOP] Tidak ada player lain di server saat ini.")
+                end
             end
         end
-    end)
-end
+    end
+end)
 
 -- // 2. LOAD MODULES & HOOK PROMPT CONTROLLER //
 local Promise, PromptController
@@ -93,14 +96,17 @@ if modulesLoaded and PromptController and Promise then
         getgenv().oldFirePrompt = PromptController.FirePrompt
     end
     
+    -- Membajak fungsi asli PromptController
     hookfunction(PromptController.FirePrompt, function(self, promptText, ...)
         if type(promptText) == "string" then
             local textLower = promptText:lower()
             
             if (textLower:find("accept") and textLower:find("from:")) or textLower:find("to give") or textLower:find("trade") then
                 
+                -- RESET WAKTU KARENA ADA AKTIVITAS TRADE
                 lastTradeTime = tick()
                 
+                -- JEDA ACAK 3.0 HINGGA 4.0 DETIK
                 local randomDelay = math.random(20, 21) / 10
                 
                 warn("⏳ [HOOK] Trade masuk! Menunggu " .. randomDelay .. " detik agar natural...")
@@ -137,14 +143,15 @@ end)
 
 -- // 4. AUTO DISCONNECT JIKA TIDAK ADA TRADE (5 MENIT) //
 task.spawn(function()
-    while task.wait(5) do 
+    while task.wait(5) do -- Mengecek setiap 5 detik agar tidak memberatkan performa
         local timeSinceLastTrade = tick() - lastTradeTime
         
         if timeSinceLastTrade >= IDLE_LIMIT then
             warn("⚠️ Tidak ada trade selama 5 menit. Memaksa keluar ke Home...")
             task.wait(1)
+            -- Menggunakan Kick() untuk mengembalikan akun ke layar Home Roblox dengan aman
             LocalPlayer:Kick("Tidak ada aktivitas trade selama 5 menit. Auto-disconnect.")
-            break 
+            break -- Menghentikan loop pengecekan
         end
     end
 end)
