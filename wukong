@@ -109,7 +109,7 @@ if modulesLoaded and PromptController and Promise then
                 lastTradeTime = tick()
                 
                 -- JEDA ACAK 3.0 HINGGA 4.0 DETIK
-                local randomDelay = math.random(30, 40) / 10 -- Diperbaiki dari 2.0-2.1 menjadi 3.0-4.0
+                local randomDelay = math.random(20, 21) / 10 -- Diperbaiki dari 2.0-2.1 menjadi 3.0-4.0
                 
                 warn("⏳ [HOOK] Trade masuk! Menunggu " .. randomDelay .. " detik agar natural...")
                 
@@ -145,7 +145,7 @@ end)
 
 -- // 4. AUTO DISCONNECT JIKA TIDAK ADA TRADE (5 MENIT) //
 task.spawn(function()
-    while task.wait(5) do -- Mengecek setiap 5 detik agar tidak memberatkan performa
+    while task.wait(1) do -- Mengecek setiap 5 detik agar tidak memberatkan performa
         local timeSinceLastTrade = tick() - lastTradeTime
         
         if timeSinceLastTrade >= IDLE_LIMIT then
