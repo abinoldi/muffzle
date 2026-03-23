@@ -6,7 +6,7 @@
 -- // 0. KONFIGURASI TELEPORT & FITUR TAMBAHAN //
 _G.FishItConfig = {
     -- Pilih mode teleportasi: "Ancient Ruin" atau "Player"
-    TeleportMode = "Player", 
+    TeleportMode = "Ancient Ruin", 
     WalkOnWater = true, -- Ubah ke false jika ingin mematikan fitur berjalan di atas air
     
     Locations = {
@@ -18,7 +18,7 @@ _G.FishItConfig = {
 }
 
 local lastTradeTime = tick() -- Mencatat waktu awal saat script dijalankan
-local IDLE_LIMIT = 300 -- Saya sesuaikan menjadi 300 (5 menit), sebelumnya 30 detik tapi deskripsinya 5 menit.
+local IDLE_LIMIT = 30 -- Saya sesuaikan menjadi 300 (5 menit), sebelumnya 30 detik tapi deskripsinya 5 menit.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
