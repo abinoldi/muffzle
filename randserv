@@ -434,47 +434,64 @@ function autoArrangeXML(packages) {
   console.log("✅ Posisi XML tersimpan.");
 }
 
-// =========================================================================
-// FUNGSI INJEKSI GFX TWEAKS
-// =========================================================================
 function applyGFXToRoblox(packages) {
-    console.log(`\n🎨 Menerapkan GFX Tweaks (Ultra Low Graphics, 15 FPS) ke semua akun...`);
-    
+    console.log(`\n🎨 Menerapkan GFX Tweaks (Ultra Low Graphics, 15 FPS) ke ${packages.length} akun...`);
+
+    // Tambahan FFlags untuk grafis "Rata Tanah" / Maximum Performance
     const fflags = {
         "FFlagDisablePostFx": "True",
         "FIntGraphicsQualityOverride": "1",
         "DFIntTextureQualityOverride": "0",
-        "FIntTextureMemoryLimit": "64",
+        "FIntTextureMemoryLimit": "16",           // Diturunkan dari 64 ke 16 agar super hemat RAM
         "DFFlagDisableMsaa": "True",
         "FFlagFastGPUShadows": "False",
         "FIntRenderShadowmapQuality": "0",
         "FIntRenderShadowIntensity": "0",
         "DFIntTaskSchedulerTargetFps": "15",
-        "FFlagDebugGraphicsPreferVulkan": "False"
+        "FFlagDebugGraphicsPreferVulkan": "False",
+        
+        // --- TWEAKS EXTRA (LUAR BIASA) ---
+        "FIntRenderParticleMaxCount": "0",        // Mematikan efek partikel (api, asap, dll)
+        "FFlagCommitToMaterialRamp": "True",      // Mematikan tekstur material kompleks
+        "DFFlagDisableTerrainWater": "True",      // Menyederhanakan render air
+        "DFIntAnimationLODFadeEnd": "0"           // Memotong animasi pemain dari jarak jauh
     };
-  
-    const jsonString = JSON.stringify(fflags);
-  
-    packages.forEach(pkg => {
-        const clientSettingsDir = `/data/data/${pkg}/files/ClientSettings`;
-        const clientSettingsFile = `${clientSettingsDir}/ClientAppSettings.json`;
-  
-        const cmd = `su -c "
-            mkdir -p ${clientSettingsDir};
-            echo '${jsonString}' > ${clientSettingsFile};
-            chmod 777 ${clientSettingsDir};
-            chmod 666 ${clientSettingsFile};
-        "`;
-  
-        try { 
-            execSync(cmd, { stdio: 'ignore' }); 
-        } catch (e) {
-            console.log(`   ❌ Gagal menerapkan GFX ke ${pkg}`);
-        }
-    });
-    console.log("   ✅ GFX Tweaks berhasil dipasang!");
-}
 
+    const jsonString = JSON.stringify(fflags, null, 2);
+
+    // Membuat Batch Script (Satu eksekusi untuk semua package)
+    let shellCommands = `
+        # 1. Simpan JSON ke temporary file dengan aman menggunakan EOF
+        TEMP_JSON="/data/local/tmp/ClientAppSettings.json"
+        cat << 'EOF' > "$TEMP_JSON"
+${jsonString}
+EOF
+    `;
+
+    // 2. Loop direktori untuk di-copy dari temporary file
+    packages.forEach(pkg => {
+        shellCommands += `
+            DIR="/data/data/${pkg}/files/ClientSettings"
+            mkdir -p "$DIR"
+            cp "$TEMP_JSON" "$DIR/ClientAppSettings.json"
+            chmod 777 "$DIR"
+            chmod 666 "$DIR/ClientAppSettings.json"
+        `;
+    });
+
+    // 3. Bersihkan file temporary
+    shellCommands += `\n        rm -f "$TEMP_JSON"`;
+
+    try {
+        // Eksekusi HANYA 1 KALI dengan akses root. Jauh lebih cepat!
+        execSync(`su -c "${shellCommands}"`, { stdio: 'pipe' }); 
+        console.log("   ✅ GFX Tweaks berhasil dipasang dalam sekejap!");
+    } catch (error) {
+        console.log(`   ❌ Gagal menerapkan GFX.`);
+        // Menampilkan pesan error asli jika gagal untuk mempermudah debugging
+        console.error(`   ⚠️ Detail Error: ${error.message}`);
+    }
+}
 // =========================================================================
 // PRE-LAUNCH DENGAN MONKEY + PENGECEKAN STATUS
 // =========================================================================
