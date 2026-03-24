@@ -496,7 +496,7 @@ async function ensureAppPreLaunched(acc, codeDisplay) {
     
     preLaunchAppWithMonkey(acc.pkg);
     
-    let waitTime = 30; 
+    let waitTime = 20; 
     let crashedDuringPreLaunch = false;
 
     for (let w = 1; w <= waitTime; w++) {
