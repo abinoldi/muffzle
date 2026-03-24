@@ -439,22 +439,23 @@ function applyGFXToRoblox(packages) {
 
     // Tambahan FFlags untuk grafis "Rata Tanah" / Maximum Performance
     const fflags = {
-        "FFlagDisablePostFx": "True",
+        // 1. Kunci grafis ke paling rendah (Aman & Efektif)
         "FIntGraphicsQualityOverride": "1",
         "DFIntTextureQualityOverride": "0",
-        "FIntTextureMemoryLimit": "16",           // Diturunkan dari 64 ke 16 agar super hemat RAM
-        "DFFlagDisableMsaa": "True",
-        "FFlagFastGPUShadows": "False",
-        "FIntRenderShadowmapQuality": "0",
-        "FIntRenderShadowIntensity": "0",
-        "DFIntTaskSchedulerTargetFps": "15",
-        "FFlagDebugGraphicsPreferVulkan": "False",
         
-        // --- TWEAKS EXTRA (LUAR BIASA) ---
-        "FIntRenderParticleMaxCount": "0",        // Mematikan efek partikel (api, asap, dll)
-        "FFlagCommitToMaterialRamp": "True",      // Mematikan tekstur material kompleks
-        "DFFlagDisableTerrainWater": "True",      // Menyederhanakan render air
-        "DFIntAnimationLODFadeEnd": "0"           // Memotong animasi pemain dari jarak jauh
+        // 2. Kunci FPS ke 15 sesuai permintaanmu
+        "DFIntTaskSchedulerTargetFps": "15",
+        
+        // 3. Matikan efek berat (Bayangan & Post-Processing) tanpa merusak engine
+        "FFlagDisablePostFx": "True",
+        "FFlagFastGPUShadows": "False",
+        "DFFlagDisableMsaa": "True",
+        
+        // 4. Sederhanakan render lingkungan
+        "DFFlagDisableTerrainWater": "True"
+        
+        // KITA HAPUS "FIntTextureMemoryLimit" agar tidak terjadi Cache Thrashing saat loading
+        // KITA HAPUS "FFlagDebugGraphicsPreferVulkan" agar HP memakai API grafis tercepatnya
     };
 
     const jsonString = JSON.stringify(fflags, null, 2);
