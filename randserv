@@ -16,7 +16,7 @@ function ensurePackage(pkg) {
   }
 }
 
-// Memastikan semua package yang dibutuhkan terinstallz
+// Memastikan semua package yang dibutuhkan terinstall
 ["cli-table3", "axios", "axios-retry"].forEach(ensurePackage);
 
 const Table = require("cli-table3");
@@ -42,7 +42,7 @@ axiosRetry(axios, {
 const MSRV_URL = "https://raw.githubusercontent.com/abinoldi/skdajws/refs/heads/main/sskdau";
 const PLACE_ID = "121864768012064";
 
-// --- SOLVER CONFIGURATION ---
+// --- SOLVER CONFIGURATIONS ---
 const SOLVER_API_URL = "http://134.199.219.230:3000/solve";
 const YES_KEY = "f7a1a420f1ae90ca6c9d4d71437262edbd0ea31237995";
 
@@ -103,7 +103,7 @@ function applyPerformanceTweaks() {
           for dev in /sys/block/mmcblk[0-9]/queue/scheduler; do
               [ -f "$dev" ] && echo "deadline" > "$dev" 2>/dev/null;
           done;
-          echo 10 > /proc/sys/vm/swappiness 2>/dev/null;
+          echo 100 > /proc/sys/vm/swappiness 2>/dev/null;
           settings put global window_animation_scale 0 2>/dev/null;
           settings put global transition_animation_scale 0 2>/dev/null;
           settings put global animator_duration_scale 0 2>/dev/null;
@@ -532,12 +532,12 @@ async function launchPackage(pkg, url) {
   } catch (e) {}
 }
 
-// --- [MODIFIKASI 1]: MENGUBAH OOM SCORE MENJADI -1000 AGAR KEBAL LMK ---
+// --- MENGUBAH OOM SCORE MENJADI -800 AGAR AMAN NAMUN PRIORITAS TINGGI ---
 async function protectProcessFromLMK(pkg) {
   try {
     const pid = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
     if (pid) {
-      execSync(`su -c "echo -1000 > /proc/${pid}/oom_score_adj"`, { stdio: 'ignore' });
+      execSync(`su -c "echo -800 > /proc/${pid}/oom_score_adj"`, { stdio: 'ignore' });
       return true;
     }
   } catch (e) {
@@ -545,7 +545,7 @@ async function protectProcessFromLMK(pkg) {
   }
 }
 
-// --- [MODIFIKASI 2]: FUNGSI BARU UNTUK WHITELIST DOZE MODE ---
+// --- FUNGSI BARU UNTUK WHITELIST DOZE MODE ---
 function whitelistBatteryOptimization(packages) {
   console.log("\n🔋 Memasukkan aplikasi ke Whitelist Optimasi Baterai (Doze Mode)...");
   packages.forEach(pkg => {
@@ -554,6 +554,13 @@ function whitelistBatteryOptimization(packages) {
     } catch (e) {}
   });
   console.log("   ✅ Whitelist selesai.");
+}
+
+// --- FUNGSI BARU UNTUK MEMAKSA GARBAGE COLLECTION RAM ---
+function forceTrimMemory(pkg) {
+  try {
+    execSync(`su -c "am send-trim-memory ${pkg} RUNNING_CRITICAL"`, { stdio: 'ignore' });
+  } catch (e) {}
 }
 
 async function fetchLinkCodes() {
@@ -655,7 +662,7 @@ async function main() {
     process.exit(0);
   }
 
-  // --- [MODIFIKASI 3]: MEMANGGIL FUNGSI WHITELIST DOZE MODE ---
+  // MEMANGGIL FUNGSI WHITELIST DOZE MODE
   whitelistBatteryOptimization(packages);
 
   let accounts = [];
@@ -822,6 +829,9 @@ async function main() {
 
         renderDashboard(codeDisplay, `👀 Mengecek status ${acc.username}...`);
         await sleep(2000); 
+
+        // MEMANGGIL FUNGSI TRIM MEMORY SEBELUM CEK KESEHATAN
+        forceTrimMemory(acc.pkg);
 
         await refreshRamUsage(acc.pkg);
         const healthCheck = await isAppHealthy(acc.pkg, acc.cookie, acc.userId);
