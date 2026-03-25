@@ -41,10 +41,12 @@ axiosRetry(axios, {
 // --- CONFIGURATION ---
 const MSRV_URL = "https://raw.githubusercontent.com/abinoldi/skdajws/refs/heads/main/sskdau";
 const PLACE_ID = "121864768012064";
+const URL_JOIN = "https://gamejoin.roblox.com/v1/join-game";
 
-// --- SOLVER CONFIGURATIONS ---
-const SOLVER_API_URL = "http://134.199.219.230:3000/solve";
-const YES_KEY = "f7a1a420f1ae90ca6c9d4d71437262edbd0ea31237995";
+// --- SOLVER CONFIGURATION (NEW) ---
+const WINTERCODE_API_KEY = "0cca3f784338b9c5ceb47d1e9342be5a0905b84364837f71ed2b8feb2da11554";
+const SOLVER_CAPTCHA_URL = "https://apiweb.wintercode.dev/api/captcha/solve";
+const SOLVER_POW_URL = "https://apiweb.wintercode.dev/api/pow/solve";
 
 // STATUS MONITORING
 const CHECK_SERVER_PRESENCE = false;
@@ -59,13 +61,13 @@ const GAP_X = 5;
 const GAP_Y = 60;
 
 // --- TIMING & RETRY ---
-const CHECK_INTERVAL = 60000;
+const CHECK_INTERVAL = 60000; 
 const POST_GAME_WAIT = 15000;
 const MAX_FINAL_RETRIES = 3;
 
 // --- DETEKSI SETTINGS ---
 const MIN_RAM_THRESHOLD = 10; 
-const PRESENCE_CHECK_DELAY = 60000;
+const PRESENCE_CHECK_DELAY = 60000; 
 const DEBUG_MODE = false; 
 
 const TERMUX_PREFIX = "/data/data/com.termux/files/usr/bin";
@@ -75,22 +77,21 @@ const SQLITE_PATH = `${TERMUX_PREFIX}/sqlite3`;
 let lastRestartMap = {};
 let accountStates = {};
 let csrfTokens = {}; 
-let launchTimers = {};
+let launchTimers = {}; 
 
 function startNetworkKeepAlive() {
   setInterval(async () => {
     try {
       await axios.head('https://8.8.8.8', { timeout: 5000 }); 
     } catch (e) {}
-  }, 120000);
+  }, 120000); 
 }
 
 function applyPerformanceTweaks() {
   console.log("\n🚀 Menerapkan Tweak Performa (CPU, Thermal, UI)...");
   try {
       const tweaksCmd = `
-          for i in {0..7};
-          do
+          for i in {0..7}; do
               echo 1 > /sys/devices/system/cpu/cpu$i/online 2>/dev/null;
               echo performance > /sys/devices/system/cpu/cpu$i/cpufreq/scaling_governor 2>/dev/null;
           done;
@@ -103,7 +104,7 @@ function applyPerformanceTweaks() {
           for dev in /sys/block/mmcblk[0-9]/queue/scheduler; do
               [ -f "$dev" ] && echo "deadline" > "$dev" 2>/dev/null;
           done;
-          echo 100 > /proc/sys/vm/swappiness 2>/dev/null;
+          echo 10 > /proc/sys/vm/swappiness 2>/dev/null;
           settings put global window_animation_scale 0 2>/dev/null;
           settings put global transition_animation_scale 0 2>/dev/null;
           settings put global animator_duration_scale 0 2>/dev/null;
@@ -119,8 +120,7 @@ function restoreSystemSettings() {
   console.log("\n♻️ Mengembalikan Pengaturan Sistem...");
   try {
       const restoreCmd = `
-          for i in {0..7};
-          do
+          for i in {0..7}; do
               echo schedutil > /sys/devices/system/cpu/cpu$i/cpufreq/scaling_governor 2>/dev/null;
           done;
           start thermal-engine 2>/dev/null;
@@ -149,12 +149,10 @@ function initSystem() {
       process.exit(0);
     }
     try { execSync("termux-wake-lock"); } catch {}
-  } catch (e) { process.exit(1);
-  }
+  } catch (e) { process.exit(1); }
 }
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
 const ask = (q) => new Promise(r => {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   rl.question(q, (ans) => { rl.close(); r(ans); });
@@ -198,12 +196,14 @@ async function getUserInfo(cookie) {
 
 async function getCsrfToken(cookie) {
   try {
-    await axios.post('https://auth.roblox.com/v2/logout', {}, {
+    const res = await axios.post('https://auth.roblox.com/v2/logout', {}, {
       headers: { 
         Cookie: `.ROBLOSECURITY=${cookie}`,
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      }
+      },
+      validateStatus: () => true
     });
+    return res.headers['x-csrf-token'] || null;
   } catch (error) {
     if (error.response && error.response.headers['x-csrf-token']) {
       return error.response.headers['x-csrf-token'];
@@ -211,6 +211,118 @@ async function getCsrfToken(cookie) {
   }
   return null;
 }
+
+// =========================================================================
+// FITUR CHECKER & SOLVER (UPDATED)
+// =========================================================================
+async function checkCookieValidity(cookie) {
+    const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36";
+    const csrf = await getCsrfToken(cookie);
+    
+    if (!csrf) return "INVALID";
+
+    try {
+        const payload = { placeId: parseInt(PLACE_ID), isTeleport: false };
+        const res = await axios.post(URL_JOIN, payload, {
+            headers: {
+                "Cookie": `.ROBLOSECURITY=${cookie}`,
+                "User-Agent": userAgent,
+                "Content-Type": "application/json",
+                "Referer": `https://www.roblox.com/games/${PLACE_ID}/`,
+                "Origin": "https://www.roblox.com",
+                "X-Csrf-Token": csrf
+            },
+            validateStatus: () => true
+        });
+
+        if (res.status === 200) return "CLEAN";
+
+        const challengeType = (res.headers["rblx-challenge-type"] || res.headers["x-roblox-challenge-type"] || "").toLowerCase();
+        if (challengeType.includes("proofofwork") || challengeType.includes("proof-of-work")) return "POW";
+        if (challengeType.includes("proofofspace") || challengeType.includes("proof-of-space")) return "POS";
+        if (challengeType === "captcha") return "CAPTCHA";
+
+        const metaB64 = res.headers["rblx-challenge-metadata"];
+        if (metaB64) {
+            try {
+                const decodedStr = Buffer.from(metaB64, 'base64').toString('utf-8');
+                const decodedMeta = JSON.parse(decodedStr);
+                const actionType = (decodedMeta.actionType || "").toLowerCase();
+                
+                if (actionType.includes("proofofwork") || actionType.includes("pow")) return "POW";
+                if (actionType.includes("proofofspace") || actionType.includes("pos")) return "POS";
+                return "CAPTCHA"; 
+            } catch (err) {}
+        }
+
+        if (res.status === 403) {
+            const data = res.data;
+            if (data && data.errors && data.errors.length > 0) {
+                const msg = (data.errors[0].message || "").toLowerCase();
+                if (msg.includes("captcha")) return "CAPTCHA";
+                if (msg.includes("proof of work") || msg.includes("pow")) return "POW";
+                if (msg.includes("proof of space") || msg.includes("pos")) return "POS";
+            }
+            return "INVALID";
+        }
+        return "ERROR";
+    } catch (e) {
+        return "ERROR";
+    }
+}
+
+async function runSolver(fullCookie, accPkg) {
+    try {
+        accountStates[accPkg].serverStatus = "🔍 Checking Type...";
+        const challengeType = await checkCookieValidity(fullCookie);
+
+        if (challengeType === "CLEAN") {
+            accountStates[accPkg].serverStatus = "✅ Clean (No Captcha)";
+            return true;
+        } else if (challengeType === "INVALID" || challengeType === "ERROR") {
+            accountStates[accPkg].serverStatus = `❌ Cookie ${challengeType}`;
+            return false;
+        }
+
+        accountStates[accPkg].serverStatus = `⏳ Solving ${challengeType}...`;
+
+        let solveUrl = "";
+        if (challengeType === "CAPTCHA") {
+            solveUrl = SOLVER_CAPTCHA_URL;
+        } else if (challengeType === "POW" || challengeType === "POS") {
+            solveUrl = SOLVER_POW_URL;
+        }
+
+        const res = await axios.post(solveUrl, 
+            { cookie: fullCookie, placeId: parseInt(PLACE_ID) },
+            {
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-API-Key": WINTERCODE_API_KEY
+                },
+                timeout: 900000 // Timeout lumayan panjang buat tunggu API selesaikan POS/POW/CAPTCHA
+            }
+        );
+
+        if (res.data && res.data.success) {
+            accountStates[accPkg].serverStatus = `✅ ${challengeType} Solved!`;
+            return true;
+        } else {
+            accountStates[accPkg].serverStatus = `❌ ${challengeType} Failed`;
+            return false;
+        }
+    } catch (error) {
+      if (error.response) {
+          accountStates[accPkg].serverStatus = `❌ API Error (${error.response.status})`;
+      } else if (error.request) {
+          accountStates[accPkg].serverStatus = "⚠️ API Timeout/No Response";
+      } else {
+          accountStates[accPkg].serverStatus = "❌ Setup Error";
+      }
+      return false;
+  }
+}
+// =========================================================================
 
 async function checkRobloxPresence(cookie, userId, pkg) {
   try {
@@ -317,16 +429,15 @@ async function refreshRamUsage(pkg) {
   return ramValue;
 }
 
-// Kembalikan ke original in-game API check
 async function isUserInGame(pkg, cookie, userId) {
   const now = Date.now();
   const lastLaunch = launchTimers[pkg] || 0;
   const timeSinceLaunch = now - lastLaunch;
+  
   if (lastLaunch > 0 && timeSinceLaunch < PRESENCE_CHECK_DELAY) {
     return { isInGame: true, status: "loading", timeRemaining: PRESENCE_CHECK_DELAY - timeSinceLaunch };
   }
   
-  // 1. Cek via Roblox API bawaan
   if (cookie && userId) {
     const robloxPresence = await checkRobloxPresence(cookie, userId, pkg);
     if (robloxPresence.isInGame) {
@@ -338,7 +449,6 @@ async function isUserInGame(pkg, cookie, userId) {
     }
   }
   
-  // 2. FALLBACK: Cek state Android Foreground/Activity
   try {
     const foregroundApp = execSync(`su -c "dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' | head -1"`, { encoding: 'utf8' }).trim();
     if (foregroundApp.includes(pkg) || foregroundApp.includes("Roblox")) {
@@ -381,6 +491,7 @@ async function isAppHealthy(pkg, cookie, userId) {
   }
   
   const presenceResult = await isUserInGame(pkg, cookie, userId);
+  
   if (presenceResult.status === "loading") {
     return { 
       healthy: true, 
@@ -435,45 +546,6 @@ function autoArrangeXML(packages) {
   console.log("✅ Posisi XML tersimpan.");
 }
 
-function applyGFXToRoblox(packages) {
-    console.log(`\n⚙️ Menghapus GFX Tweaks dan mengatur ulang limit FPS ke 15 pada ${packages.length} akun...`);
-
-    const fflags = {
-        "DFIntTaskSchedulerTargetFps": "15"
-    };
-
-    const jsonString = JSON.stringify(fflags, null, 2);
-
-    let shellCommands = `
-        TEMP_JSON="/data/local/tmp/ClientAppSettings.json"
-        cat << 'EOF' > "$TEMP_JSON"
-${jsonString}
-EOF
-    `;
-
-    packages.forEach(pkg => {
-        shellCommands += `
-            DIR="/data/data/${pkg}/files/ClientSettings"
-            mkdir -p "$DIR"
-            cp "$TEMP_JSON" "$DIR/ClientAppSettings.json"
-            chmod 777 "$DIR"
-            chmod 666 "$DIR/ClientAppSettings.json"
-        `;
-    });
-
-    shellCommands += `\n        rm -f "$TEMP_JSON"`;
-    try {
-        execSync(`su -c "${shellCommands}"`, { stdio: 'pipe' }); 
-        console.log("   ✅ GFX Tweaks berhasil dihapus dan FPS Limiter 15 berhasil dipasang!");
-    } catch (error) {
-        console.log(`   ❌ Gagal menerapkan pengaturan.`);
-        console.error(`   ⚠️ Detail Error: ${error.message}`);
-    }
-}
-
-// =========================================================================
-// PRE-LAUNCH DENGAN MONKEY + PENGECEKAN STATUS
-// =========================================================================
 function preLaunchAppWithMonkey(pkg) {
   try {
     execSync(`su -c "monkey -p ${pkg} -c android.intent.category.LAUNCHER 1"`, { stdio: 'ignore' });
@@ -492,8 +564,9 @@ async function ensureAppPreLaunched(acc, codeDisplay) {
     
     preLaunchAppWithMonkey(acc.pkg);
     
-    let waitTime = 20; 
+    let waitTime = 30; 
     let crashedDuringPreLaunch = false;
+
     for (let w = 1; w <= waitTime; w++) {
        renderDashboard(codeDisplay, `⏳ Menunggu app ${acc.username} terbuka... (${w}/${waitTime}s)`);
        await sleep(1000);
@@ -522,7 +595,6 @@ async function ensureAppPreLaunched(acc, codeDisplay) {
     }
   }
 }
-// =========================================================================
 
 async function launchPackage(pkg, url) {
   try {
@@ -532,35 +604,16 @@ async function launchPackage(pkg, url) {
   } catch (e) {}
 }
 
-// --- MENGUBAH OOM SCORE MENJADI -800 AGAR AMAN NAMUN PRIORITAS TINGGI ---
 async function protectProcessFromLMK(pkg) {
   try {
     const pid = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
     if (pid) {
-      execSync(`su -c "echo -800 > /proc/${pid}/oom_score_adj"`, { stdio: 'ignore' });
+      execSync(`su -c "echo -900 > /proc/${pid}/oom_score_adj"`, { stdio: 'ignore' });
       return true;
     }
   } catch (e) {
     return false;
   }
-}
-
-// --- FUNGSI BARU UNTUK WHITELIST DOZE MODE ---
-function whitelistBatteryOptimization(packages) {
-  console.log("\n🔋 Memasukkan aplikasi ke Whitelist Optimasi Baterai (Doze Mode)...");
-  packages.forEach(pkg => {
-    try {
-      execSync(`su -c "dumpsys deviceidle whitelist +${pkg}"`, { stdio: 'ignore' });
-    } catch (e) {}
-  });
-  console.log("   ✅ Whitelist selesai.");
-}
-
-// --- FUNGSI BARU UNTUK MEMAKSA GARBAGE COLLECTION RAM ---
-function forceTrimMemory(pkg) {
-  try {
-    execSync(`su -c "am send-trim-memory ${pkg} RUNNING_CRITICAL"`, { stdio: 'ignore' });
-  } catch (e) {}
 }
 
 async function fetchLinkCodes() {
@@ -599,13 +652,11 @@ function renderDashboard(cleanCode, statusMessage) {
   const wStatus = Math.floor(safeWidth * 0.20);
   const wRam = 10;
   const wAction = Math.max(5, safeWidth - (wPkg + wUser + wState + wStatus + wRam));
-  
   const table = new Table({ 
       head: ['Pkg', 'User', 'State', 'Status', 'RAM', 'Action'], 
       colWidths: [wPkg, wUser, wState, wStatus, wRam, wAction],
       wordWrap: true 
   });
-  
   Object.keys(accountStates).sort().forEach(pkg => {
     const s = accountStates[pkg];
     table.push([
@@ -628,26 +679,6 @@ function isAppRunning(pkg) {
   }
 }
 
-async function runSolver(fullCookie, accPkg) {
-    try {
-        const res = await axios.get(SOLVER_API_URL, {
-            params: { cookie: fullCookie, yeskey: YES_KEY },
-            timeout: 900000 
-        });
-        accountStates[accPkg].serverStatus = "✅ Solver Passed";
-        return true;
-    } catch (error) {
-      if (error.response) {
-          accountStates[accPkg].serverStatus = `❌ Server Error (${error.response.status})`;
-      } else if (error.request) {
-          accountStates[accPkg].serverStatus = "⚠️ No Response/Timeout";
-      } else {
-          accountStates[accPkg].serverStatus = "❌ Setup Error";
-      }
-      return false;
-  }
-}
-
 async function main() {
   initSystem();
   startNetworkKeepAlive();
@@ -661,9 +692,6 @@ async function main() {
     console.log("❌ No Roblox packages found."); 
     process.exit(0);
   }
-
-  // MEMANGGIL FUNGSI WHITELIST DOZE MODE
-  whitelistBatteryOptimization(packages);
 
   let accounts = [];
   packages.sort();
@@ -691,7 +719,7 @@ async function main() {
 
   const codes = await fetchLinkCodes();
   if (codes.length === 0) { 
-    console.log("⚠️ No codes found.");
+    console.log("⚠️ No codes found."); 
     process.exit(1);
   }
 
@@ -708,8 +736,10 @@ async function main() {
     } else {
         console.log("\n📜 Available Codes:");
         codes.forEach((code, index) => console.log(`[${index + 1}] ${code}`));
+        
         const selection = await ask("\n👉 Choose Server: ");
         const idx = parseInt(selection) - 1;
+        
         if (isNaN(idx) || idx < 0 || idx >= codes.length) {
             console.log("❌ Invalid selection.");
             process.exit(1);
@@ -719,12 +749,8 @@ async function main() {
   }
 
   const codeDisplay = AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`;
-  // 1. Mengatur Posisi XML
   autoArrangeXML(accounts.map(a => a.pkg));
 
-  // 2. Menerapkan Setelan GFX (Low Texture & 15 FPS)
-  applyGFXToRoblox(accounts.map(a => a.pkg));
-  
   // ==========================================
   // FASE 0: PRE-LAUNCH AWAL UNTUK SEMUA APLIKASI
   // ==========================================
@@ -739,11 +765,12 @@ async function main() {
   console.log("\n🚀 Fase 1: Bypass Captcha & Join via LinkCode...");
   for (let i = 0; i < accounts.length; i++) {
     const acc = accounts[i];
-    accountStates[acc.pkg].serverStatus = "Solving Captcha ⏳";
-    renderDashboard(codeDisplay, `🤖 Mengirim cookie ${acc.username} ke Solver API...`);
+    
+    accountStates[acc.pkg].serverStatus = "Solving Challenge ⏳";
+    renderDashboard(codeDisplay, `🤖 Mengecek cookie ${acc.username} sebelum request ke Wintercode API...`);
     
     await runSolver(acc.cookie, acc.pkg);
-    renderDashboard(codeDisplay, `✅ Solver selesai untuk ${acc.username}. Injecting LinkCode...`);
+    renderDashboard(codeDisplay, `✅ Checker & Solver selesai untuk ${acc.username}. Injecting LinkCode...`);
     await sleep(2000); 
 
     let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
@@ -751,12 +778,13 @@ async function main() {
         currentCode = currentCode.split("linkCode=")[1].split("&")[0];
     }
     const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
+    
     let isStable = false;
     let isFirstTry = true; 
 
     while (!isStable) {
       if (!isFirstTry) {
-          stopPackage(acc.pkg);
+          stopPackage(acc.pkg); 
           releaseMemory();
           await sleep(1500); 
           
@@ -802,7 +830,7 @@ async function main() {
         await sleep(2000);
       }
       
-      isFirstTry = false;
+      isFirstTry = false; 
     }
   }
 
@@ -830,9 +858,6 @@ async function main() {
         renderDashboard(codeDisplay, `👀 Mengecek status ${acc.username}...`);
         await sleep(2000); 
 
-        // MEMANGGIL FUNGSI TRIM MEMORY SEBELUM CEK KESEHATAN
-        forceTrimMemory(acc.pkg);
-
         await refreshRamUsage(acc.pkg);
         const healthCheck = await isAppHealthy(acc.pkg, acc.cookie, acc.userId);
         
@@ -858,12 +883,13 @@ async function main() {
               stopPackage(acc.pkg);
               releaseMemory();
               await sleep(1500);
+
               // 1. PRE-LAUNCH SEBELUM REJOIN
               await ensureAppPreLaunched(acc, codeDisplay);
-              
+
               // 2. BYPASS CAPTCHA SEBELUM JOIN
-              accountStates[acc.pkg].serverStatus = "Solving Captcha ⏳";
-              renderDashboard(codeDisplay, `🤖 Memproses Solver API untuk ${acc.username}...`);
+              accountStates[acc.pkg].serverStatus = "Solving Challenge ⏳";
+              renderDashboard(codeDisplay, `🤖 Mengecek cookie ${acc.username} sebelum request ke Wintercode API...`);
               await runSolver(acc.cookie, acc.pkg);
               
               let currentCode = AUTO_RANDOM_CODE ? codes[Math.floor(Math.random() * codes.length)] : cleanCode;
@@ -894,7 +920,7 @@ async function main() {
                       await refreshRamUsage(acc.pkg);
                       crashedDuringRecovery = true;
                       await sleep(3000);
-                      break;
+                      break; 
                   } else if (recoveryHealth.loading) {
                       accountStates[acc.pkg].serverStatus = `⏳ ${recoveryHealth.reason}`;
                   }
