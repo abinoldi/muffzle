@@ -16,7 +16,7 @@ function ensurePackage(pkg) {
   }
 }
 
-// Memastikan semua package yang dibutuhkan terinstall
+// Memastikan semua package yang dibutuhkan terinstallz
 ["cli-table3", "axios", "axios-retry"].forEach(ensurePackage);
 
 const Table = require("cli-table3");
@@ -435,27 +435,12 @@ function autoArrangeXML(packages) {
 }
 
 function applyGFXToRoblox(packages) {
-    console.log(`\n🎨 Menerapkan GFX Tweaks (Ultra Low Graphics, 15 FPS) ke ${packages.length} akun...`);
+    console.log(`\n⚙️ Menghapus GFX Tweaks dan mengatur ulang limit FPS ke 15 pada ${packages.length} akun...`);
 
-    // Tambahan FFlags untuk grafis "Rata Tanah" / Maximum Performance
+    // Hanya menyisakan FFlag untuk FPS Limiter
+    // Karena file akan di-overwrite, semua FFlag GFX sebelumnya otomatis hilang dan kembali ke default
     const fflags = {
-        // 1. Kunci grafis ke paling rendah (Aman & Efektif)
-        "FIntGraphicsQualityOverride": "1",
-        "DFIntTextureQualityOverride": "0",
-        
-        // 2. Kunci FPS ke 15 sesuai permintaanmu
-        "DFIntTaskSchedulerTargetFps": "15",
-        
-        // 3. Matikan efek berat (Bayangan & Post-Processing) tanpa merusak engine
-        "FFlagDisablePostFx": "True",
-        "FFlagFastGPUShadows": "False",
-        "DFFlagDisableMsaa": "True",
-        
-        // 4. Sederhanakan render lingkungan
-        "DFFlagDisableTerrainWater": "True"
-        
-        // KITA HAPUS "FIntTextureMemoryLimit" agar tidak terjadi Cache Thrashing saat loading
-        // KITA HAPUS "FFlagDebugGraphicsPreferVulkan" agar HP memakai API grafis tercepatnya
+        "DFIntTaskSchedulerTargetFps": "15"
     };
 
     const jsonString = JSON.stringify(fflags, null, 2);
@@ -469,7 +454,7 @@ ${jsonString}
 EOF
     `;
 
-    // 2. Loop direktori untuk di-copy dari temporary file
+    // 2. Loop direktori untuk menimpa file ClientAppSettings.json lama dengan yang baru
     packages.forEach(pkg => {
         shellCommands += `
             DIR="/data/data/${pkg}/files/ClientSettings"
@@ -486,9 +471,9 @@ EOF
     try {
         // Eksekusi HANYA 1 KALI dengan akses root. Jauh lebih cepat!
         execSync(`su -c "${shellCommands}"`, { stdio: 'pipe' }); 
-        console.log("   ✅ GFX Tweaks berhasil dipasang dalam sekejap!");
+        console.log("   ✅ GFX Tweaks berhasil dihapus dan FPS Limiter 15 berhasil dipasang!");
     } catch (error) {
-        console.log(`   ❌ Gagal menerapkan GFX.`);
+        console.log(`   ❌ Gagal menerapkan pengaturan.`);
         // Menampilkan pesan error asli jika gagal untuk mempermudah debugging
         console.error(`   ⚠️ Detail Error: ${error.message}`);
     }
