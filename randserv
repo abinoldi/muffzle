@@ -154,6 +154,7 @@ function initSystem() {
 }
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 const ask = (q) => new Promise(r => {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   rl.question(q, (ans) => { rl.close(); r(ans); });
@@ -295,7 +296,7 @@ function getAppRam(pkg, retryCount = 0) {
   } catch (e) {
     if (retryCount < 3) {
       require('child_process').execSync(`sleep 1`);
-      return getAppRam(pkg, retryCount + 1);
+        return getAppRam(pkg, retryCount + 1);
     }
     return "0 MB";
   }
@@ -437,24 +438,19 @@ function autoArrangeXML(packages) {
 function applyGFXToRoblox(packages) {
     console.log(`\n⚙️ Menghapus GFX Tweaks dan mengatur ulang limit FPS ke 15 pada ${packages.length} akun...`);
 
-    // Hanya menyisakan FFlag untuk FPS Limiter
-    // Karena file akan di-overwrite, semua FFlag GFX sebelumnya otomatis hilang dan kembali ke default
     const fflags = {
         "DFIntTaskSchedulerTargetFps": "15"
     };
 
     const jsonString = JSON.stringify(fflags, null, 2);
 
-    // Membuat Batch Script (Satu eksekusi untuk semua package)
     let shellCommands = `
-        # 1. Simpan JSON ke temporary file dengan aman menggunakan EOF
         TEMP_JSON="/data/local/tmp/ClientAppSettings.json"
         cat << 'EOF' > "$TEMP_JSON"
 ${jsonString}
 EOF
     `;
 
-    // 2. Loop direktori untuk menimpa file ClientAppSettings.json lama dengan yang baru
     packages.forEach(pkg => {
         shellCommands += `
             DIR="/data/data/${pkg}/files/ClientSettings"
@@ -465,19 +461,16 @@ EOF
         `;
     });
 
-    // 3. Bersihkan file temporary
     shellCommands += `\n        rm -f "$TEMP_JSON"`;
-
     try {
-        // Eksekusi HANYA 1 KALI dengan akses root. Jauh lebih cepat!
         execSync(`su -c "${shellCommands}"`, { stdio: 'pipe' }); 
         console.log("   ✅ GFX Tweaks berhasil dihapus dan FPS Limiter 15 berhasil dipasang!");
     } catch (error) {
         console.log(`   ❌ Gagal menerapkan pengaturan.`);
-        // Menampilkan pesan error asli jika gagal untuk mempermudah debugging
         console.error(`   ⚠️ Detail Error: ${error.message}`);
     }
 }
+
 // =========================================================================
 // PRE-LAUNCH DENGAN MONKEY + PENGECEKAN STATUS
 // =========================================================================
@@ -501,7 +494,6 @@ async function ensureAppPreLaunched(acc, codeDisplay) {
     
     let waitTime = 20; 
     let crashedDuringPreLaunch = false;
-
     for (let w = 1; w <= waitTime; w++) {
        renderDashboard(codeDisplay, `⏳ Menunggu app ${acc.username} terbuka... (${w}/${waitTime}s)`);
        await sleep(1000);
@@ -540,16 +532,28 @@ async function launchPackage(pkg, url) {
   } catch (e) {}
 }
 
+// --- [MODIFIKASI 1]: MENGUBAH OOM SCORE MENJADI -1000 AGAR KEBAL LMK ---
 async function protectProcessFromLMK(pkg) {
   try {
     const pid = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
     if (pid) {
-      execSync(`su -c "echo -900 > /proc/${pid}/oom_score_adj"`, { stdio: 'ignore' });
+      execSync(`su -c "echo -1000 > /proc/${pid}/oom_score_adj"`, { stdio: 'ignore' });
       return true;
     }
   } catch (e) {
     return false;
   }
+}
+
+// --- [MODIFIKASI 2]: FUNGSI BARU UNTUK WHITELIST DOZE MODE ---
+function whitelistBatteryOptimization(packages) {
+  console.log("\n🔋 Memasukkan aplikasi ke Whitelist Optimasi Baterai (Doze Mode)...");
+  packages.forEach(pkg => {
+    try {
+      execSync(`su -c "dumpsys deviceidle whitelist +${pkg}"`, { stdio: 'ignore' });
+    } catch (e) {}
+  });
+  console.log("   ✅ Whitelist selesai.");
 }
 
 async function fetchLinkCodes() {
@@ -588,13 +592,13 @@ function renderDashboard(cleanCode, statusMessage) {
   const wStatus = Math.floor(safeWidth * 0.20);
   const wRam = 10;
   const wAction = Math.max(5, safeWidth - (wPkg + wUser + wState + wStatus + wRam));
-
+  
   const table = new Table({ 
       head: ['Pkg', 'User', 'State', 'Status', 'RAM', 'Action'], 
       colWidths: [wPkg, wUser, wState, wStatus, wRam, wAction],
       wordWrap: true 
   });
-
+  
   Object.keys(accountStates).sort().forEach(pkg => {
     const s = accountStates[pkg];
     table.push([
@@ -651,6 +655,9 @@ async function main() {
     process.exit(0);
   }
 
+  // --- [MODIFIKASI 3]: MEMANGGIL FUNGSI WHITELIST DOZE MODE ---
+  whitelistBatteryOptimization(packages);
+
   let accounts = [];
   packages.sort();
   for (const pkg of packages) {
@@ -705,13 +712,12 @@ async function main() {
   }
 
   const codeDisplay = AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`;
-  
   // 1. Mengatur Posisi XML
   autoArrangeXML(accounts.map(a => a.pkg));
 
   // 2. Menerapkan Setelan GFX (Low Texture & 15 FPS)
   applyGFXToRoblox(accounts.map(a => a.pkg));
-
+  
   // ==========================================
   // FASE 0: PRE-LAUNCH AWAL UNTUK SEMUA APLIKASI
   // ==========================================
@@ -844,6 +850,7 @@ async function main() {
               await sleep(1500);
               // 1. PRE-LAUNCH SEBELUM REJOIN
               await ensureAppPreLaunched(acc, codeDisplay);
+              
               // 2. BYPASS CAPTCHA SEBELUM JOIN
               accountStates[acc.pkg].serverStatus = "Solving Captcha ⏳";
               renderDashboard(codeDisplay, `🤖 Memproses Solver API untuk ${acc.username}...`);
@@ -854,6 +861,7 @@ async function main() {
                   currentCode = currentCode.split("linkCode=")[1].split("&")[0];
               }
               const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
+              
               // 3. INJECT LINKCODE KETIKA APP SUDAH STANDBY & CAPTCHA SOLVED
               await launchPackage(acc.pkg, finalLaunchUrl);
               launchTimers[acc.pkg] = Date.now(); 
