@@ -26,7 +26,7 @@ const Table = require("cli-table3");
 const axios = require("axios");
 const axiosRetry = require("axios-retry").default || require("axios-retry");
 
-// --- NETWORK STABILITY TWEAKS ---
+// --- NETWORK STABILITY TWEAKSs ---
 axios.defaults.httpAgent = new http.Agent({ keepAlive: true, maxSockets: 50 });
 axios.defaults.httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 50 });
 axios.defaults.timeout = 15000;
@@ -46,7 +46,7 @@ const MSRV_URL = "https://raw.githubusercontent.com/abinoldi/skdajws/refs/heads/
 const PLACE_ID = "121864768012064";
 const URL_JOIN = "https://gamejoin.roblox.com/v1/join-game";
 
-// --- SOLVER CONFIGURATION (NEW) ---
+// --- SOLVER CONFIGURATION ---
 const WINTERCODE_API_KEY = "0cca3f784338b9c5ceb47d1e9342be5a0905b84364837f71ed2b8feb2da11554";
 const SOLVER_CAPTCHA_URL = "https://apiweb.wintercode.dev/api/captcha/solve";
 const SOLVER_POW_URL = "https://apiweb.wintercode.dev/api/pow/solve";
@@ -67,7 +67,7 @@ const GAP_Y = 60;
 const CHECK_INTERVAL = 60000; 
 const POST_GAME_WAIT = 15000;
 const MAX_FINAL_RETRIES = 3;
-const MAX_LOOP_ATTEMPTS = 3; // Batas maksimal retry agar tidak stuck
+const MAX_LOOP_ATTEMPTS = 3; 
 
 // --- DETEKSI SETTINGS ---
 const MIN_RAM_THRESHOLD = 10; 
@@ -296,7 +296,7 @@ async function runSolver(fullCookie, accPkg) {
                     "Content-Type": "application/json",
                     "X-API-Key": WINTERCODE_API_KEY
                 },
-                timeout: 60000 // DIUBAH: 60 detik agar tidak stuck memblokir antrean
+                timeout: 60000 
             }
         );
 
@@ -370,12 +370,10 @@ async function checkRobloxPresence(cookie, userId, pkg) {
   }
 }
 
-// ASYNC: Mencegah blocking event loop
 async function stopPackageAsync(pkg) {
   try { await execAsync(`am force-stop ${pkg}`); } catch (e) {} 
 }
 
-// ASYNC: Mencegah blocking saat drop caches
 async function releaseMemoryAsync() {
   try {
     await execAsync('su -c "sync; echo 3 > /proc/sys/vm/drop_caches"');
@@ -383,7 +381,6 @@ async function releaseMemoryAsync() {
   } catch (e) { return false; }
 }
 
-// ASYNC + OPTIMIZED: Menggunakan /proc/[pid]/status (jauh lebih cepat & ringan dari dumpsys meminfo)
 async function getAppRamAsync(pkg) {
   try {
     const { stdout: pidOut } = await execAsync(`su -c "pidof ${pkg}"`);
@@ -409,7 +406,6 @@ async function refreshRamUsage(pkg) {
   return ramValue;
 }
 
-// ASYNC: Mencegah blocking
 async function isAppRunningAsync(pkg) {
   try {
     const { stdout } = await execAsync(`su -c "pidof ${pkg}"`);
@@ -417,7 +413,6 @@ async function isAppRunningAsync(pkg) {
   } catch (e) { return false; }
 }
 
-// ASYNC DUMPSYS
 async function isUserInGame(pkg, cookie, userId) {
   const now = Date.now();
   const lastLaunch = launchTimers[pkg] || 0;
@@ -501,6 +496,36 @@ async function isAppHealthy(pkg, cookie, userId) {
   };
 }
 
+// --- FUNGSI BARU: INJEKSI FASTFLAGS ---
+function injectFastFlags(packages) {
+  console.log(`\n⚡ Menginjeksi FastFlags (Mode Super Ringan) ke ${packages.length} clone...`);
+  
+  const fflags = {
+    "FFlagDisablePostFx": "True",
+    "FIntRenderShadowIntensity": "0",
+    "FIntFRMMinGrassDistance": "0",
+    "FIntFRMMaxGrassDistance": "0",
+    "FFlagDebugGraphicsDisableDirect3D11Vsync1": "True",
+    "FFlagDebugGraphicsPreferVulkan": "True",
+    "FFlagDisableInGameAds": "True",
+    "FIntDebugForceLevelOfDetail": "0",
+    "DFIntTaskSchedulerTargetFps": "15" 
+  };
+  
+  // Convert object ke string JSON dan escape kutip ganda agar aman di bash
+  const jsonStr = JSON.stringify(fflags).replace(/"/g, '\\"');
+  
+  packages.forEach(pkg => {
+    const targetDir = `/data/data/${pkg}/files/ClientSettings`;
+    // Buat folder ClientSettings jika belum ada, lalu tulis ClientAppSettings.json langsung pakai root
+    const cmd = `su -c "mkdir -p ${targetDir} && echo '${jsonStr}' > ${targetDir}/ClientAppSettings.json && chmod -R 777 ${targetDir}"`;
+    try { 
+        execSync(cmd, { stdio: 'ignore' }); 
+    } catch (e) {}
+  });
+  console.log("✅ Injeksi FastFlags selesai.");
+}
+
 function autoArrangeXML(packages) {
   console.log(`\n📐 Mengatur XML (Grid ${GRID_COLS}xN | Size ${BOX_SIZE} | Gap Y ${GAP_Y})...`);
   packages.sort();
@@ -532,7 +557,6 @@ async function ensureAppPreLaunched(acc, codeDisplay) {
   let isPreLaunchSuccess = false;
   let attempt = 0;
 
-  // DITAMBAHKAN: Batas maksimal retry
   while (!isPreLaunchSuccess && attempt < MAX_LOOP_ATTEMPTS) {
     attempt++;
     accountStates[acc.pkg].serverStatus = `Pre-launching 🐒 (Try ${attempt}/${MAX_LOOP_ATTEMPTS})`;
@@ -722,7 +746,10 @@ async function main() {
   }
 
   const codeDisplay = AUTO_RANDOM_CODE ? "RANDOM" : `...${cleanCode.slice(-4)}`;
+  
+  // MENGATUR XML DAN MENGINJEKSI FASTFLAGS
   autoArrangeXML(accounts.map(a => a.pkg));
+  injectFastFlags(accounts.map(a => a.pkg));
 
   // ==========================================
   // FASE 0: PRE-LAUNCH AWAL UNTUK SEMUA APLIKASI
@@ -756,7 +783,6 @@ async function main() {
     let isFirstTry = true; 
     let joinAttempt = 0;
 
-    // DITAMBAHKAN: Batas maksimal retry join
     while (!isStable && joinAttempt < MAX_LOOP_ATTEMPTS) {
       joinAttempt++;
       if (!isFirstTry) {
@@ -765,7 +791,7 @@ async function main() {
           await sleep(1500); 
           
           const preLaunchOk = await ensureAppPreLaunched(acc, codeDisplay);
-          if (!preLaunchOk) break; // Skip jika pre-launch gagal terus
+          if (!preLaunchOk) break; 
       }
 
       await launchPackageAsync(acc.pkg, finalLaunchUrl);
@@ -773,24 +799,26 @@ async function main() {
       accountStates[acc.pkg].isRunning = true;
       accountStates[acc.pkg].serverStatus = `Joining Game... (Try ${joinAttempt})`;
       
-      await sleep(3000);
+      renderDashboard(codeDisplay, `🚀 App ${acc.username} terbuka. Memberikan waktu napas (15s)...`);
+      await sleep(15000); 
+      
       await protectProcessFromLMKAsync(acc.pkg);
       
       let crashed = false;
-      for (let sec = 1; sec <= 60; sec++) {
-        if (sec % 5 === 0) {
+      for (let sec = 1; sec <= 15; sec++) { 
+        if (sec % 2 === 0) { 
           await refreshRamUsage(acc.pkg);
         }
         
-        renderDashboard(codeDisplay, `⏳ ${acc.username} Stabilizing... (${sec}/60s) 🛡️ Shield ON`);
-        await sleep(1000); 
+        renderDashboard(codeDisplay, `⏳ ${acc.username} Stabilizing... (${sec * 4}/60s) 🛡️ Shield ON`);
+        await sleep(4000); 
 
         const healthCheck = await isAppHealthy(acc.pkg, acc.cookie, acc.userId);
         
         if (!healthCheck.healthy) {
             accountStates[acc.pkg].serverStatus = `Crash: ${healthCheck.reason}`;
             await refreshRamUsage(acc.pkg);
-            renderDashboard(codeDisplay, `⚠️ ${acc.username} ${healthCheck.reason} di detik ${sec}! Membuka ulang...`);
+            renderDashboard(codeDisplay, `⚠️ ${acc.username} ${healthCheck.reason} di detik ${sec * 4}! Membuka ulang...`);
             crashed = true;
             await sleep(3000); 
             break;
@@ -827,7 +855,6 @@ async function main() {
     for (let i = 0; i < accounts.length; i++) {
         const acc = accounts[i];
         
-        // Skip akun yang sudah ditandai gagal dari fase 1
         if (accountStates[acc.pkg].serverStatus.includes("Gagal Join")) continue;
 
         renderDashboard(codeDisplay, `🔒 Cek validitas cookie ${acc.username}...`);
@@ -862,7 +889,6 @@ async function main() {
           let currentCrashReason = healthCheck.reason;
           let recoveryAttempt = 0;
 
-          // DITAMBAHKAN: Batas maksimal retry recovery
           while (!isStable && recoveryAttempt < MAX_LOOP_ATTEMPTS) {
               recoveryAttempt++;
               accountStates[acc.pkg].isRunning = false;
@@ -874,11 +900,9 @@ async function main() {
               await releaseMemoryAsync();
               await sleep(1500);
 
-              // 1. PRE-LAUNCH SEBELUM REJOIN
               const preLaunchOk = await ensureAppPreLaunched(acc, codeDisplay);
               if (!preLaunchOk) break;
 
-              // 2. BYPASS CAPTCHA SEBELUM JOIN
               accountStates[acc.pkg].serverStatus = "Solving Challenge ⏳";
               renderDashboard(codeDisplay, `🤖 Mengecek cookie ${acc.username} sebelum request ke Wintercode API...`);
               await runSolver(acc.cookie, acc.pkg);
@@ -889,19 +913,20 @@ async function main() {
               }
               const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
               
-              // 3. INJECT LINKCODE KETIKA APP SUDAH STANDBY & CAPTCHA SOLVED
               await launchPackageAsync(acc.pkg, finalLaunchUrl);
               
-              await sleep(3000);
+              renderDashboard(codeDisplay, `🚀 App ${acc.username} terbuka. Memberikan waktu napas (15s)...`);
+              await sleep(15000); 
+
               await protectProcessFromLMKAsync(acc.pkg);
               
               let crashedDuringRecovery = false;
-              for(let w = 1; w <= 60; w++) {
-                  if (w % 5 === 0) {
+              for(let w = 1; w <= 15; w++) { 
+                  if (w % 2 === 0) {
                     await refreshRamUsage(acc.pkg);
                   }
-                  renderDashboard(codeDisplay, `⏳ Stabilizing ${acc.username}... (${w}/60s) 🛡️ Shield ON`);
-                  await sleep(1000);
+                  renderDashboard(codeDisplay, `⏳ Stabilizing ${acc.username}... (${w * 4}/60s) 🛡️ Shield ON`);
+                  await sleep(4000); 
 
                   const recoveryHealth = await isAppHealthy(acc.pkg, acc.cookie, acc.userId);
                   if (!recoveryHealth.healthy) {
