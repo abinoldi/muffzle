@@ -4,7 +4,7 @@ const readline = require('readline');
 
 // --- KONFIGURASI BARU ---
 const GHOSTBIN_URL = "https://raw.githubusercontent.com/abinoldi/skdajws/refs/heads/main/sskdaudau";
-const PACKAGE_NAME = "com.roblox.clienb"; 
+const PACKAGE_NAME = "com.roblox.clienc"; 
 const PLACE_ID = "121864768012064";
 const CHECK_INTERVAL = 60000; // 1 menit (ms) untuk monitoring
 const STABILIZATION_DELAY = 45000; // 45 detik untuk loading
