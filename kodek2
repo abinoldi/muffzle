@@ -3,6 +3,7 @@
 # =============================================
 # DIRECT HTTP INSTALLER (SDCARD / INTERNAL STORAGE VER)
 # VERSION: ZIP EDITION (INSTALL ALL APKS) - ROOT BYPASS ED.
+# OPTIMIZED: MULTI-THREAD DOWNLOAD SPEED
 # =============================================
 
 # Konfigurasi Baru (Direct Link)
@@ -40,7 +41,8 @@ setup_storage() {
 }
 
 check_deps() {
-    local deps=("curl" "unzip" "tsu")
+    # Menambahkan aria2 ke dalam daftar dependency
+    local deps=("aria2" "unzip" "tsu")
     for dep in "${deps[@]}"; do
         if ! command -v "$dep" &>/dev/null; then
             echo -e "${BLUE}[INFO]${NC} Menginstall $dep..."
@@ -55,7 +57,7 @@ check_deps() {
 run_system() {
     clear
     echo -e "${BLUE}================================${NC}"
-    echo -e "${GREEN}DIRECT INSTALLER - ALL APKS EDITION${NC}"
+    echo -e "${GREEN}DIRECT INSTALLER - SPEED OPTIMIZED${NC}"
     echo -e "${BLUE}================================${NC}\n"
     
     check_deps
@@ -68,11 +70,12 @@ run_system() {
     rm -rf "$STORAGE_DIR"/*
     echo -e "${GREEN}[OK]${NC} Folder sudah dibersihkan."
     
-    # --- Download Langsung ---
-    echo -e "${BLUE}[INFO]${NC} Mendownload file dari server..."
+    # --- Download Super Cepat (Aria2c) ---
+    echo -e "${BLUE}[INFO]${NC} Mendownload file dari server (Multi-thread)..."
     echo -e "${YELLOW}URL: $TARGET_URL${NC}"
     
-    curl -L "$TARGET_URL" --progress-bar -o "$ZIP_FILE"
+    # Parameter -x 16 dan -s 16 membuka 16 koneksi sekaligus
+    aria2c -x 16 -s 16 -j 16 -k 1M --file-allocation=none -d "$STORAGE_DIR" -o "$ZIP_FILE" "$TARGET_URL"
         
     if [[ ! -f "$ZIP_FILE" || ! -s "$ZIP_FILE" ]]; then
         echo -e "${RED}[FAIL]${NC} Download Gagal atau file kosong."
@@ -125,7 +128,7 @@ run_system() {
     done
     
     # Opsional: Hapus APK setelah selesai diinstall agar memori tidak penuh
-    # rm -rf "$STORAGE_DIR"/* echo "----------------------------------------"
+    # rm -rf "$STORAGE_DIR"/* echo -e "----------------------------------------"
     echo -e "${GREEN}✅ Selesai! Berhasil: $success, Gagal: $failed${NC}"
     echo -e "${BLUE}[INFO]${NC} File ada di: ${YELLOW}$STORAGE_DIR${NC}"
 }
