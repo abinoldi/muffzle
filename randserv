@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 
-const { execSync } = require("child_process");
+const { execSync, exec } = require("child_process");
 const fs = require("fs");
 const readline = require("readline");
 const os = require("os");
 const http = require("http");
 const https = require("https");
+const util = require("util");
+
+const execAsync = util.promisify(exec);
 
 function ensurePackage(pkg) {
   try { require.resolve(pkg);
@@ -64,6 +67,7 @@ const GAP_Y = 60;
 const CHECK_INTERVAL = 60000; 
 const POST_GAME_WAIT = 15000;
 const MAX_FINAL_RETRIES = 3;
+const MAX_LOOP_ATTEMPTS = 3; // Batas maksimal retry agar tidak stuck
 
 // --- DETEKSI SETTINGS ---
 const MIN_RAM_THRESHOLD = 10; 
@@ -212,9 +216,6 @@ async function getCsrfToken(cookie) {
   return null;
 }
 
-// =========================================================================
-// FITUR CHECKER & SOLVER (UPDATED)
-// =========================================================================
 async function checkCookieValidity(cookie) {
     const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36";
     const csrf = await getCsrfToken(cookie);
@@ -286,12 +287,7 @@ async function runSolver(fullCookie, accPkg) {
 
         accountStates[accPkg].serverStatus = `⏳ Solving ${challengeType}...`;
 
-        let solveUrl = "";
-        if (challengeType === "CAPTCHA") {
-            solveUrl = SOLVER_CAPTCHA_URL;
-        } else if (challengeType === "POW" || challengeType === "POS") {
-            solveUrl = SOLVER_POW_URL;
-        }
+        let solveUrl = challengeType === "CAPTCHA" ? SOLVER_CAPTCHA_URL : SOLVER_POW_URL;
 
         const res = await axios.post(solveUrl, 
             { cookie: fullCookie, placeId: parseInt(PLACE_ID) },
@@ -300,7 +296,7 @@ async function runSolver(fullCookie, accPkg) {
                     "Content-Type": "application/json",
                     "X-API-Key": WINTERCODE_API_KEY
                 },
-                timeout: 900000 // Timeout lumayan panjang buat tunggu API selesaikan POS/POW/CAPTCHA
+                timeout: 60000 // DIUBAH: 60 detik agar tidak stuck memblokir antrean
             }
         );
 
@@ -322,7 +318,6 @@ async function runSolver(fullCookie, accPkg) {
       return false;
   }
 }
-// =========================================================================
 
 async function checkRobloxPresence(cookie, userId, pkg) {
   try {
@@ -375,60 +370,54 @@ async function checkRobloxPresence(cookie, userId, pkg) {
   }
 }
 
-function stopPackage(pkg) {
-  try { execSync(`am force-stop ${pkg}`, { stdio: 'ignore' });
-  } catch (e) {} 
+// ASYNC: Mencegah blocking event loop
+async function stopPackageAsync(pkg) {
+  try { await execAsync(`am force-stop ${pkg}`); } catch (e) {} 
 }
 
-function releaseMemory() {
+// ASYNC: Mencegah blocking saat drop caches
+async function releaseMemoryAsync() {
   try {
-    execSync('su -c "sync; echo 3 > /proc/sys/vm/drop_caches"', { stdio: 'ignore' });
+    await execAsync('su -c "sync; echo 3 > /proc/sys/vm/drop_caches"');
     return true;
   } catch (e) { return false; }
 }
 
-function getAppRam(pkg, retryCount = 0) {
+// ASYNC + OPTIMIZED: Menggunakan /proc/[pid]/status (jauh lebih cepat & ringan dari dumpsys meminfo)
+async function getAppRamAsync(pkg) {
   try {
-    const pid = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
-    if (!pid) {
-      if (retryCount < 3) {
-        require('child_process').execSync(`sleep 1`);
-        return getAppRam(pkg, retryCount + 1);
-      }
-      return "0 MB";
-    }
+    const { stdout: pidOut } = await execAsync(`su -c "pidof ${pkg}"`);
+    const pid = pidOut.trim();
+    if (!pid) return "0 MB";
     
-    const memInfo = execSync(`su -c "dumpsys meminfo ${pkg} | grep -E 'TOTAL:|TOTAL PSS:'"`, { encoding: 'utf8' }).trim();
-    const match = memInfo.match(/\d+/);
+    const { stdout: statusOut } = await execAsync(`su -c "grep VmRSS /proc/${pid}/status"`);
+    const match = statusOut.match(/\d+/);
     if (match) {
         const mb = (parseInt(match[0]) / 1024).toFixed(1);
         return `${mb} MB`;
     }
     return "N/A";
   } catch (e) {
-    if (retryCount < 3) {
-      require('child_process').execSync(`sleep 1`);
-        return getAppRam(pkg, retryCount + 1);
-    }
     return "0 MB";
   }
 }
 
 async function refreshRamUsage(pkg) {
-  await sleep(2000);
-  let ramValue = "0 MB";
-  for (let i = 0; i < 3; i++) {
-    ramValue = getAppRam(pkg);
-    if (ramValue !== "0 MB" && ramValue !== "N/A") {
-      break;
-    }
-    await sleep(1000);
-  }
-  
+  await sleep(1000);
+  let ramValue = await getAppRamAsync(pkg);
   accountStates[pkg].ramUsage = ramValue;
   return ramValue;
 }
 
+// ASYNC: Mencegah blocking
+async function isAppRunningAsync(pkg) {
+  try {
+    const { stdout } = await execAsync(`su -c "pidof ${pkg}"`);
+    return stdout.trim().length > 0;
+  } catch (e) { return false; }
+}
+
+// ASYNC DUMPSYS
 async function isUserInGame(pkg, cookie, userId) {
   const now = Date.now();
   const lastLaunch = launchTimers[pkg] || 0;
@@ -450,23 +439,16 @@ async function isUserInGame(pkg, cookie, userId) {
   }
   
   try {
-    const foregroundApp = execSync(`su -c "dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' | head -1"`, { encoding: 'utf8' }).trim();
+    const { stdout: foregroundApp } = await execAsync(`su -c "dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' | head -1"`);
     if (foregroundApp.includes(pkg) || foregroundApp.includes("Roblox")) {
       return { isInGame: true, status: "in-game", source: "foreground" };
     }
   } catch (e) {}
   
   try {
-    const visibleActivity = execSync(`su -c "dumpsys activity activities | grep -B 5 -A 5 '${pkg}' | grep -E 'mVisible=true|ResumedActivity'"`, { encoding: 'utf8' }).trim();
+    const { stdout: visibleActivity } = await execAsync(`su -c "dumpsys activity activities | grep -B 5 -A 5 '${pkg}' | grep -E 'mVisible=true|ResumedActivity'"`);
     if (visibleActivity) {
       return { isInGame: true, status: "in-game", source: "activity" };
-    }
-  } catch (e) {}
-  
-  try {
-    const procInfo = execSync(`su -c "dumpsys activity processes | grep -A 5 '${pkg}' | grep -E 'importance='"`, { encoding: 'utf8' }).trim();
-    if (procInfo.includes("importance=100") || procInfo.includes("importance=200")) {
-      return { isInGame: true, status: "in-game", source: "importance" };
     }
   } catch (e) {}
   
@@ -474,12 +456,12 @@ async function isUserInGame(pkg, cookie, userId) {
 }
 
 async function isAppHealthy(pkg, cookie, userId) {
-  const processRunning = isAppRunning(pkg);
+  const processRunning = await isAppRunningAsync(pkg);
   if (!processRunning) {
     return { healthy: false, reason: "Process Not Running", ram: 0, priority: "critical" };
   }
   
-  const ramStr = getAppRam(pkg);
+  const ramStr = await getAppRamAsync(pkg);
   const ramValue = parseFloat(ramStr) || 0;
   if (ramValue < MIN_RAM_THRESHOLD && ramValue > 0) {
     return { 
@@ -546,23 +528,17 @@ function autoArrangeXML(packages) {
   console.log("✅ Posisi XML tersimpan.");
 }
 
-function preLaunchAppWithMonkey(pkg) {
-  try {
-    execSync(`su -c "monkey -p ${pkg} -c android.intent.category.LAUNCHER 1"`, { stdio: 'ignore' });
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
 async function ensureAppPreLaunched(acc, codeDisplay) {
   let isPreLaunchSuccess = false;
+  let attempt = 0;
 
-  while (!isPreLaunchSuccess) {
-    accountStates[acc.pkg].serverStatus = "Pre-launching 🐒";
+  // DITAMBAHKAN: Batas maksimal retry
+  while (!isPreLaunchSuccess && attempt < MAX_LOOP_ATTEMPTS) {
+    attempt++;
+    accountStates[acc.pkg].serverStatus = `Pre-launching 🐒 (Try ${attempt}/${MAX_LOOP_ATTEMPTS})`;
     renderDashboard(codeDisplay, `🐒 Pre-launch ${acc.pkg} dengan Monkey...`);
     
-    preLaunchAppWithMonkey(acc.pkg);
+    await execAsync(`su -c "monkey -p ${acc.pkg} -c android.intent.category.LAUNCHER 1"`).catch(()=>{});
     
     let waitTime = 30; 
     let crashedDuringPreLaunch = false;
@@ -572,8 +548,9 @@ async function ensureAppPreLaunched(acc, codeDisplay) {
        await sleep(1000);
 
        if (w % 5 === 0) {
-         const isRunning = isAppRunning(acc.pkg);
-         const ramVal = parseFloat(getAppRam(acc.pkg)) || 0;
+         const isRunning = await isAppRunningAsync(acc.pkg);
+         const ramStr = await getAppRamAsync(acc.pkg);
+         const ramVal = parseFloat(ramStr) || 0;
          
          if (!isRunning || (ramVal > 0 && ramVal < MIN_RAM_THRESHOLD)) {
             renderDashboard(codeDisplay, `⚠️ ${acc.username} Crash saat Pre-launch (RAM: ${ramVal}MB)! Mengulangi...`);
@@ -589,31 +566,35 @@ async function ensureAppPreLaunched(acc, codeDisplay) {
         renderDashboard(codeDisplay, `✅ App ${acc.username} sukses standby di background!`);
         await sleep(1500);
     } else {
-        stopPackage(acc.pkg);
-        releaseMemory();
+        await stopPackageAsync(acc.pkg);
+        await releaseMemoryAsync();
         await sleep(2000);
     }
   }
+  
+  if (!isPreLaunchSuccess) {
+      accountStates[acc.pkg].serverStatus = "❌ Failed Pre-launch";
+  }
+  return isPreLaunchSuccess;
 }
 
-async function launchPackage(pkg, url) {
+async function launchPackageAsync(pkg, url) {
   try {
     const cmd = `am start -n ${pkg}/com.roblox.client.ActivityProtocolLaunch -f 0x18080000 -a android.intent.action.VIEW -d "${url}"`;
-    execSync(cmd, { stdio: 'ignore' });
+    await execAsync(cmd);
     launchTimers[pkg] = Date.now();
   } catch (e) {}
 }
 
-async function protectProcessFromLMK(pkg) {
+async function protectProcessFromLMKAsync(pkg) {
   try {
-    const pid = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
+    const { stdout } = await execAsync(`su -c "pidof ${pkg}"`);
+    const pid = stdout.trim();
     if (pid) {
-      execSync(`su -c "echo -900 > /proc/${pid}/oom_score_adj"`, { stdio: 'ignore' });
+      await execAsync(`su -c "echo -900 > /proc/${pid}/oom_score_adj"`);
       return true;
     }
-  } catch (e) {
-    return false;
-  }
+  } catch (e) { return false; }
 }
 
 async function fetchLinkCodes() {
@@ -669,14 +650,6 @@ function renderDashboard(cleanCode, statusMessage) {
     ]);
   });
   console.log(table.toString());
-}
-
-function isAppRunning(pkg) {
-  try {
-    const output = execSync(`su -c "pidof ${pkg}"`, { encoding: 'utf8' }).trim();
-    return output.length > 0;
-  } catch (e) { return false;
-  }
 }
 
 async function main() {
@@ -781,23 +754,27 @@ async function main() {
     
     let isStable = false;
     let isFirstTry = true; 
+    let joinAttempt = 0;
 
-    while (!isStable) {
+    // DITAMBAHKAN: Batas maksimal retry join
+    while (!isStable && joinAttempt < MAX_LOOP_ATTEMPTS) {
+      joinAttempt++;
       if (!isFirstTry) {
-          stopPackage(acc.pkg); 
-          releaseMemory();
+          await stopPackageAsync(acc.pkg); 
+          await releaseMemoryAsync();
           await sleep(1500); 
           
-          await ensureAppPreLaunched(acc, codeDisplay);
+          const preLaunchOk = await ensureAppPreLaunched(acc, codeDisplay);
+          if (!preLaunchOk) break; // Skip jika pre-launch gagal terus
       }
 
-      await launchPackage(acc.pkg, finalLaunchUrl);
+      await launchPackageAsync(acc.pkg, finalLaunchUrl);
       lastRestartMap[acc.pkg] = Date.now();
       accountStates[acc.pkg].isRunning = true;
-      accountStates[acc.pkg].serverStatus = "Joining Game...";
+      accountStates[acc.pkg].serverStatus = `Joining Game... (Try ${joinAttempt})`;
       
       await sleep(3000);
-      await protectProcessFromLMK(acc.pkg);
+      await protectProcessFromLMKAsync(acc.pkg);
       
       let crashed = false;
       for (let sec = 1; sec <= 60; sec++) {
@@ -832,17 +809,27 @@ async function main() {
       
       isFirstTry = false; 
     }
+    
+    if (!isStable) {
+       accountStates[acc.pkg].serverStatus = "❌ Gagal Join (Max Retries)";
+       accountStates[acc.pkg].isRunning = false;
+    }
   }
 
   // ==========================================
   // FASE 2: CONTINUOUS MONITORING
   // ==========================================
   console.log("\n🔄 Memasuki Mode Continuous Monitoring...");
-  releaseMemory();
+  await releaseMemoryAsync();
+  
   while (true) {
     let anyCrashed = false;
     for (let i = 0; i < accounts.length; i++) {
         const acc = accounts[i];
+        
+        // Skip akun yang sudah ditandai gagal dari fase 1
+        if (accountStates[acc.pkg].serverStatus.includes("Gagal Join")) continue;
+
         renderDashboard(codeDisplay, `🔒 Cek validitas cookie ${acc.username}...`);
         const cookieStatus = await getUserInfo(acc.cookie);
         if (!cookieStatus.id || cookieStatus.name === "Expired") {
@@ -850,7 +837,7 @@ async function main() {
             accountStates[acc.pkg].isRunning = false;
             accountStates[acc.pkg].ramUsage = "0 MB";
             accountStates[acc.pkg].action = "Skipped";
-            stopPackage(acc.pkg); 
+            await stopPackageAsync(acc.pkg); 
             await sleep(2000);
             continue;
         }
@@ -873,19 +860,23 @@ async function main() {
           anyCrashed = true;
           let isStable = false;
           let currentCrashReason = healthCheck.reason;
+          let recoveryAttempt = 0;
 
-          while (!isStable) {
+          // DITAMBAHKAN: Batas maksimal retry recovery
+          while (!isStable && recoveryAttempt < MAX_LOOP_ATTEMPTS) {
+              recoveryAttempt++;
               accountStates[acc.pkg].isRunning = false;
-              accountStates[acc.pkg].serverStatus = `⚠️ ${currentCrashReason} - Reopening...`;
+              accountStates[acc.pkg].serverStatus = `⚠️ ${currentCrashReason} - Reopening (Try ${recoveryAttempt})...`;
               accountStates[acc.pkg].ramUsage = "0 MB";
               accountStates[acc.pkg].action = `⚠️ ${currentCrashReason}`;
 
-              stopPackage(acc.pkg);
-              releaseMemory();
+              await stopPackageAsync(acc.pkg);
+              await releaseMemoryAsync();
               await sleep(1500);
 
               // 1. PRE-LAUNCH SEBELUM REJOIN
-              await ensureAppPreLaunched(acc, codeDisplay);
+              const preLaunchOk = await ensureAppPreLaunched(acc, codeDisplay);
+              if (!preLaunchOk) break;
 
               // 2. BYPASS CAPTCHA SEBELUM JOIN
               accountStates[acc.pkg].serverStatus = "Solving Challenge ⏳";
@@ -899,11 +890,10 @@ async function main() {
               const finalLaunchUrl = `roblox://placeID=${PLACE_ID}&linkCode=${currentCode}`;
               
               // 3. INJECT LINKCODE KETIKA APP SUDAH STANDBY & CAPTCHA SOLVED
-              await launchPackage(acc.pkg, finalLaunchUrl);
-              launchTimers[acc.pkg] = Date.now(); 
+              await launchPackageAsync(acc.pkg, finalLaunchUrl);
               
               await sleep(3000);
-              await protectProcessFromLMK(acc.pkg);
+              await protectProcessFromLMKAsync(acc.pkg);
               
               let crashedDuringRecovery = false;
               for(let w = 1; w <= 60; w++) {
@@ -935,11 +925,16 @@ async function main() {
                   await sleep(2000);
               }
           }
+          
+          if (!isStable) {
+             accountStates[acc.pkg].serverStatus = "❌ Gagal Recovery (Max Retries)";
+             accountStates[acc.pkg].isRunning = false;
+          }
         }
     }
 
     if (anyCrashed) {
-        releaseMemory();
+        await releaseMemoryAsync();
     }
 
     renderDashboard(codeDisplay, `👀 Monitoring Selesai | Next check in ${CHECK_INTERVAL/1000}s`);
